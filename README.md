@@ -23,6 +23,11 @@ No cloud, no accounts to buy, no build step. One Docker container.
   the browser — print a badge per tech straight from the Techs screen.
 - **Low-stock dashboard.** Set a threshold per item; the dashboard flags
   anything at or below it.
+- **Date-range reports.** Pick a week, a month, or any custom range, see a
+  summary (received / taken / returned, by item and by tech), and download a
+  CSV for your records.
+- **White-labeling.** Set your company name, tagline, and logo in Settings and
+  StockTrax rebrands itself across the kiosk, landing page, and browser tab.
 - **Full audit log.** Who took what, when — receives, checkouts, and returns.
 
 ## Quick start (Docker)
@@ -81,15 +86,19 @@ send Enter) — this is the default mode for nearly every USB scanner.
 
 ```
 src/
-  server.js    Express API (items, users, transactions, lookup, dashboard, settings)
-  db.js        SQLite init + first-run seed
-  schema.sql   Tables — configurable categories/units, users, items, transactions
-  barcode.js   Pluggable barcode-lookup providers
+  server.js       Express API (kiosk + admin, session auth, reports, settings)
+  auth.js         Password hashing (scrypt), recovery codes, tokens — no deps
+  reset-admin.js  Command-line admin password reset (lockout fallback)
+  db.js           SQLite init, migrations, first-run seed
+  schema.sql      Tables — users, items, transactions, sessions, settings
+  barcode.js      Pluggable barcode-lookup providers
 public/
-  index.html   Landing
+  index.html      Landing
+  login.html / recover.html   Admin sign-in and password recovery
   kiosk.html   / js/kiosk.js   Tech-facing scan station
   admin.html   / js/admin.js   Admin console
-  js/code39.js Barcode SVG generator (no deps)
+  js/branding.js  Applies company name/logo/tagline across pages
+  js/code39.js    Barcode SVG generator (no deps)
   css/style.css
 ```
 
@@ -112,15 +121,40 @@ into the code:
 ### Roadmap ideas
 - Photo upload for products without a database image
 - Locations (warehouse shelf / truck) per stock item
-- Per-item history view and CSV export
-- Proper auth/sessions for the admin console (currently a simple PIN)
+- Per-item history view
+- Multiple admin accounts with roles/permissions
 
-## Security note
+## Accounts & security
 
-The admin console uses a simple name + PIN check and is intended to run on your
-own trusted network (like your other self-hosted tools), not exposed to the
-open internet. If you put it behind a public URL, front it with a reverse proxy
-and real authentication.
+The admin console is protected by a password login with server-side sessions.
+Passwords are hashed with scrypt (via Node's built-in `crypto` — no plaintext,
+no external dependency). The kiosk stays login-free by design: techs identify
+themselves by scanning their badge, not by signing in.
+
+**First login:** user `Admin`, password from `ADMIN_PASSWORD` (default `admin`).
+Change it immediately under **Settings → Account & security**, and generate a
+**recovery code** while you're there — it's shown once, so save it somewhere safe.
+
+**If you forget your password:** click **Forgot password?** on the sign-in page
+and enter your recovery code to set a new one (a fresh recovery code is issued).
+
+**If you're fully locked out** (no recovery code), reset from the server shell —
+only someone with access to the machine can do this:
+
+```bash
+docker compose exec stocktrax node src/reset-admin.js "YourNewPassword"
+```
+
+It sets the new password, prints a new recovery code, and signs out all sessions.
+
+**Upgrading from an older version:** the first boot migrates your database
+automatically and turns your existing admin PIN into your new password — so log
+in with `Admin` and your old PIN, then change it.
+
+**Network exposure:** StockTrax is built to run on your own trusted network,
+like your other self-hosted tools. If you expose it to the public internet, put
+it behind a reverse proxy with HTTPS (and add `Secure;` to the session cookie in
+`src/server.js`).
 
 ## License
 

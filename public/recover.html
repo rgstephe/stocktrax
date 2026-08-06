@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StockTrax — Reset password</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .auth-wrap { max-width: 420px; margin: 0 auto; padding: 72px 24px; }
+    .auth-brand { text-align: center; margin-bottom: 28px; }
+    .auth-brand .wordmark { font-size: 32px; font-weight: 800; letter-spacing: -.03em; }
+    .auth-brand .wordmark span { color: var(--signal); }
+    .auth-sub { text-align: center; color: var(--muted); font-size: 14px; margin-top: 4px; }
+    .auth-err { background: var(--take-bg); color: #8f3418; border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 14px; display: none; }
+    .auth-links { text-align: center; margin-top: 16px; font-size: 14px; }
+    .ok-box { background: var(--go-bg); color: #14603f; border-radius: 8px; padding: 16px; text-align: center; }
+    .ok-box .code { font-family: var(--mono); font-size: 22px; font-weight: 700; letter-spacing: .04em; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-brand">
+      <div class="wordmark">Stock<span>Trax</span></div>
+      <div class="auth-sub">Reset your password</div>
+    </div>
+
+    <div class="card" id="formCard">
+      <div class="auth-err" id="err"></div>
+      <p style="margin-top:0; color:var(--muted); font-size:13px;">Enter the recovery code you saved when you set up your account, then choose a new password.</p>
+      <div class="field"><label>Name</label><input id="name" placeholder="Admin" /></div>
+      <div class="field mono"><label>Recovery code</label><input id="code" placeholder="XXXX-XXXX-XXXX" /></div>
+      <div class="field"><label>New password</label><input id="newpw" type="password" placeholder="At least 8 characters" /></div>
+      <button class="btn btn-primary" id="reset" style="width:100%;">Reset password</button>
+    </div>
+
+    <div class="card" id="doneCard" style="display:none;">
+      <div class="ok-box">
+        <strong>Password reset.</strong>
+        <p style="margin:10px 0 4px; font-size:13px;">Here's your new recovery code — save it somewhere safe. The old one no longer works.</p>
+        <div class="code" id="newCode"></div>
+      </div>
+      <a class="btn btn-primary" href="/login.html" style="width:100%; display:block; text-align:center; margin-top:16px;">Go to sign in</a>
+    </div>
+
+    <div class="auth-links"><a href="/login.html">← Back to sign in</a></div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/branding.js"></script>
+  <script>
+    const err = document.getElementById('err');
+    function showErr(m) { err.textContent = m; err.style.display = 'block'; }
+    async function reset() {
+      err.style.display = 'none';
+      try {
+        const r = await api.post('/api/recover', {
+          name: document.getElementById('name').value.trim(),
+          code: document.getElementById('code').value.trim(),
+          new_password: document.getElementById('newpw').value,
+        });
+        document.getElementById('formCard').style.display = 'none';
+        document.getElementById('newCode').textContent = r.recovery_code;
+        document.getElementById('doneCard').style.display = 'block';
+      } catch (e) { showErr(e.message || 'Reset failed'); }
+    }
+    document.getElementById('reset').addEventListener('click', reset);
+  </script>
+</body>
+</html>

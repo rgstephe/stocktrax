@@ -15,9 +15,10 @@
       <button data-tab="items">Items</button>
       <button data-tab="techs">Techs</button>
       <button data-tab="log">Log</button>
+      <button data-tab="reports">Reports</button>
       <button data-tab="settings">Settings</button>
     </nav>
-    <div class="whoami">Admin Console</div>
+    <div class="whoami"><span id="whoName">Admin Console</span> · <button id="logoutBtn" style="background:none;border:none;color:#8aa0b6;cursor:pointer;text-decoration:underline;font-size:13px;">Sign out</button></div>
   </header>
 
   <main class="admin-body">
@@ -102,13 +103,78 @@
       <div class="card"><div id="logTable"></div></div>
     </section>
 
+    <!-- REPORTS -->
+    <section id="reports" class="tab">
+      <h2 class="page-title">Reports</h2>
+      <p class="page-sub">Pick a date range, review the summary, and download a CSV for your records.</p>
+      <div class="card">
+        <div class="row" style="align-items:flex-end;">
+          <div class="field" style="margin:0;"><label>From</label><input id="repFrom" type="date" /></div>
+          <div class="field" style="margin:0;"><label>To</label><input id="repTo" type="date" /></div>
+          <button class="btn" id="repThisWeek" style="flex:0;">This week</button>
+          <button class="btn" id="repThisMonth" style="flex:0;">This month</button>
+          <button class="btn" id="repLastMonth" style="flex:0;">Last month</button>
+        </div>
+        <div style="margin-top:16px; display:flex; gap:12px;">
+          <button class="btn btn-primary" id="repView">View summary</button>
+          <button class="btn btn-go" id="repDownload">Download CSV</button>
+        </div>
+      </div>
+      <div id="repResults"></div>
+    </section>
+
     <!-- SETTINGS -->
     <section id="settings" class="tab">
       <h2 class="page-title">Settings</h2>
-      <p class="page-sub">Company name, barcode lookup, and your taxonomy.</p>
+      <p class="page-sub">Branding, barcode lookup, and your taxonomy.</p>
+
       <div class="card">
-        <h3>General</h3>
-        <div class="field"><label>Company name</label><input id="setCompany" /></div>
+        <h3>Branding</h3>
+        <p style="margin:-6px 0 16px; color:var(--muted); font-size:13px;">Make StockTrax look like your company's own app. Shows on the kiosk, landing page, and browser tab.</p>
+        <div class="field"><label>App name (your company)</label><input id="setCompany" placeholder="e.g. Ultra Pest Control" /></div>
+        <div class="field"><label>Tagline</label><input id="setTagline" placeholder="e.g. Ultra Pest Control Stock Room" /></div>
+        <div class="field">
+          <label>Logo</label>
+          <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+            <div id="logoPreview" style="width:120px; height:120px; border:1px solid var(--line); border-radius:10px; display:grid; place-items:center; background:#fff; overflow:hidden;">
+              <span style="color:var(--muted); font-size:12px;">No logo</span>
+            </div>
+            <div>
+              <input id="logoFile" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" />
+              <p style="color:var(--muted); font-size:12px; margin:8px 0 0;">PNG, JPG, SVG, or WebP. Square works best. Under ~1&nbsp;MB.</p>
+              <button class="btn btn-sm btn-ghost" id="logoClear" style="margin-top:8px;">Remove logo</button>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="setBrandSave">Save branding</button>
+      </div>
+
+      <div class="card">
+        <h3>Account &amp; security</h3>
+        <div class="row">
+          <div class="field"><label>Current password</label><input id="pwCurrent" type="password" autocomplete="current-password" /></div>
+          <div class="field"><label>New password</label><input id="pwNew" type="password" autocomplete="new-password" placeholder="At least 8 characters" /></div>
+        </div>
+        <button class="btn btn-primary" id="pwSave">Change password</button>
+
+        <hr style="border:none; border-top:1px solid var(--line); margin:20px 0;" />
+
+        <h3 style="margin-bottom:6px;">Account recovery</h3>
+        <p style="margin:0 0 12px; color:var(--muted); font-size:13px;">
+          A recovery code lets you reset your password if you forget it. Generate one and store it somewhere safe —
+          it's shown only once. <span id="recoveryStatus"></span>
+        </p>
+        <button class="btn" id="genRecovery">Generate recovery code</button>
+        <div id="recoveryBox" style="display:none; margin-top:14px;">
+          <div class="ok-box" style="background:var(--go-bg); color:#14603f; border-radius:8px; padding:16px; text-align:center;">
+            <p style="margin:0 0 6px; font-size:13px;">Save this code now — it won't be shown again:</p>
+            <div class="mono" id="recoveryCode" style="font-size:22px; font-weight:700; letter-spacing:.04em;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Barcode lookup</h3>
         <div class="row">
           <div class="field"><label>Barcode provider</label>
             <select id="setProvider">
@@ -118,7 +184,7 @@
           </div>
           <div class="field"><label>API key (optional)</label><input id="setApiKey" placeholder="Leave blank for free tier" /></div>
         </div>
-        <button class="btn btn-primary" id="setSave">Save settings</button>
+        <button class="btn btn-primary" id="setSave">Save lookup settings</button>
       </div>
       <div class="row">
         <div class="card">
@@ -145,6 +211,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="/js/api.js"></script>
+  <script src="/js/branding.js"></script>
   <script src="/js/code39.js"></script>
   <script src="/js/admin.js"></script>
 </body>

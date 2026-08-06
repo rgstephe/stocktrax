@@ -35,6 +35,10 @@ body {
 /* mono utility for anything countable / scannable */
 .mono, .qty, .sku, .badge-code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
+/* company logo inside any wordmark — scales with the wordmark's own size */
+.wordmark .brand-logo { height: 1.25em; width: auto; vertical-align: middle; margin-right: .45em; border-radius: 4px; object-fit: contain; }
+.wordmark .brand-name { vertical-align: middle; }
+
 a { color: var(--accent); }
 button { font-family: inherit; cursor: pointer; }
 

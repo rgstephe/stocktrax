@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StockTrax — Sign in</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .auth-wrap { max-width: 400px; margin: 0 auto; padding: 72px 24px; }
+    .auth-brand { text-align: center; margin-bottom: 28px; }
+    .auth-brand .wordmark { font-size: 32px; font-weight: 800; letter-spacing: -.03em; }
+    .auth-brand .wordmark span { color: var(--signal); }
+    .auth-sub { text-align: center; color: var(--muted); font-size: 14px; margin-top: 4px; }
+    .auth-err { background: var(--take-bg); color: #8f3418; border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 14px; display: none; }
+    .auth-links { text-align: center; margin-top: 16px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-brand">
+      <div class="wordmark">Stock<span>Trax</span></div>
+      <div class="auth-sub">Admin Console</div>
+    </div>
+    <div class="card">
+      <div class="auth-err" id="err"></div>
+      <div class="field"><label>Name</label><input id="name" autocomplete="username" placeholder="Admin" /></div>
+      <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" /></div>
+      <button class="btn btn-primary" id="signin" style="width:100%;">Sign in</button>
+      <div class="auth-links"><a href="/recover.html">Forgot password?</a></div>
+    </div>
+    <div class="auth-links"><a href="/">← Back to home</a></div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/branding.js"></script>
+  <script>
+    const err = document.getElementById('err');
+    function showErr(m) { err.textContent = m; err.style.display = 'block'; }
+    async function signin() {
+      err.style.display = 'none';
+      try {
+        await api.post('/api/login', {
+          name: document.getElementById('name').value.trim(),
+          password: document.getElementById('password').value,
+        });
+        location.href = '/admin.html';
+      } catch (e) { showErr(e.message || 'Sign in failed'); }
+    }
+    document.getElementById('signin').addEventListener('click', signin);
+    document.getElementById('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') signin(); });
+    // If already signed in, skip straight to the console.
+    fetch('/api/me').then((r) => { if (r.ok) location.href = '/admin.html'; }).catch(() => {});
+  </script>
+</body>
+</html>

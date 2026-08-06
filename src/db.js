@@ -14,6 +14,7 @@
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
+const { hashPassword } = require('./auth');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -24,6 +25,37 @@ const db = new Database(DB_PATH);
 // Apply schema
 const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 db.exec(schema);
+
+// ---- Migrations -----------------------------------------------------------
+// Bring older databases (created before auth existed) up to the current shape,
+// without losing data. Safe to run on every boot.
+
+function ensureColumn(table, column, decl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  }
+}
+ensureColumn('users', 'password_hash', 'TEXT');
+ensureColumn('users', 'recovery_hash', 'TEXT');
+db.exec(`CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+)`);
+
+// Upgrade path: any admin who still logs in with a legacy PIN and has no
+// password yet gets that PIN turned into a proper hashed password, so their
+// existing credential keeps working and nobody is locked out by the upgrade.
+const legacyAdmins = db
+  .prepare("SELECT id, pin FROM users WHERE role = 'admin' AND password_hash IS NULL AND pin IS NOT NULL AND pin != ''")
+  .all();
+if (legacyAdmins.length) {
+  const setPw = db.prepare('UPDATE users SET password_hash = ? WHERE id = ?');
+  for (const a of legacyAdmins) setPw.run(hashPassword(a.pin), a.id);
+  console.log(`[migrate] Upgraded ${legacyAdmins.length} admin PIN(s) to hashed passwords.`);
+}
 
 // ---- First-run seed -------------------------------------------------------
 // Only seeds when the tables are empty, so restarts never clobber real data.
@@ -55,10 +87,12 @@ if (unitCount === 0) {
 const userCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 if (userCount === 0) {
   // A starter admin so you can log into the console on first boot.
-  // Change the PIN in Settings immediately.
+  // Default login is  Admin / (ADMIN_PASSWORD env, or "admin").
+  // Change it immediately in Settings and set a recovery code.
+  const startPw = process.env.ADMIN_PASSWORD || 'admin';
   db.prepare(
-    "INSERT INTO users (name, role, badge_barcode, pin) VALUES (?, 'admin', ?, ?)"
-  ).run('Admin', 'ADMIN-0001', process.env.ADMIN_PIN || '4242');
+    "INSERT INTO users (name, role, badge_barcode, password_hash) VALUES (?, 'admin', ?, ?)"
+  ).run('Admin', 'ADMIN-0001', hashPassword(startPw));
 }
 
 module.exports = db;

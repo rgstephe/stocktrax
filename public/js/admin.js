@@ -18,6 +18,7 @@ function loadTab(name) {
   else if (name === 'items') loadItems();
   else if (name === 'techs') loadTechs();
   else if (name === 'log') loadLog();
+  else if (name === 'reports') loadReports();
   else if (name === 'settings') loadSettings();
 }
 
@@ -248,21 +249,61 @@ function txRow(t) {
 }
 
 // ---- SETTINGS -------------------------------------------------------------
+let pendingLogo; // undefined = unchanged; '' = cleared; data-url = new logo
+
 async function loadSettings() {
   await ensureTaxonomy();
   const s = await api.get('/api/settings');
-  fill('setCompany', s.company_name || '');
+  fill('setCompany', s.company_name && s.company_name !== 'StockTrax' ? s.company_name : '');
+  fill('setTagline', s.brand_tagline || '');
+  pendingLogo = undefined;
+  renderLogoPreview(s.logo_data_url || '');
   document.getElementById('setProvider').value = s.barcode_provider || 'upcitemdb';
   document.getElementById('setApiKey').placeholder = s.has_barcode_api_key ? '•••••• (saved)' : 'Leave blank for free tier';
   renderChips('catList', categories, 'category');
   renderChips('unitList', units, 'unit');
+  refreshAccountStatus();
+  document.getElementById('recoveryBox').style.display = 'none';
 }
+
+function renderLogoPreview(dataUrl) {
+  const box = document.getElementById('logoPreview');
+  box.innerHTML = dataUrl
+    ? `<img src="${escapeAttr(dataUrl)}" style="max-width:100%;max-height:100%;object-fit:contain;">`
+    : '<span style="color:var(--muted); font-size:12px;">No logo</span>';
+}
+
+document.getElementById('logoFile').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) return toast('That image is over 2 MB — please use a smaller one', true);
+  const reader = new FileReader();
+  reader.onload = () => { pendingLogo = reader.result; renderLogoPreview(pendingLogo); };
+  reader.readAsDataURL(file);
+});
+document.getElementById('logoClear').addEventListener('click', () => {
+  pendingLogo = '';
+  renderLogoPreview('');
+  document.getElementById('logoFile').value = '';
+});
+
+document.getElementById('setBrandSave').addEventListener('click', async () => {
+  const body = {
+    company_name: val('setCompany') || 'StockTrax',
+    brand_tagline: val('setTagline'),
+  };
+  if (pendingLogo !== undefined) body.logo_data_url = pendingLogo;
+  await api.put('/api/settings', body);
+  toast('Branding saved — reloading to apply');
+  setTimeout(() => location.reload(), 800); // re-run branding.js across the app
+});
+
 document.getElementById('setSave').addEventListener('click', async () => {
-  const body = { company_name: val('setCompany'), barcode_provider: val('setProvider') };
+  const body = { barcode_provider: val('setProvider') };
   const key = val('setApiKey');
   if (key) body.barcode_api_key = key;
   await api.put('/api/settings', body);
-  toast('Settings saved');
+  toast('Lookup settings saved');
 });
 document.getElementById('addCat').addEventListener('click', async () => {
   const name = val('newCat'); if (!name) return;
@@ -282,6 +323,85 @@ function renderChips(elId, rows, label) {
   document.getElementById(elId).innerHTML = rows.length
     ? rows.map((r) => `<span class="pill adjustment" style="margin:0 6px 6px 0;">${escapeHtml(r.name)}</span>`).join('')
     : `<div class="empty" style="padding:12px;">No ${label}s yet.</div>`;
+}
+
+// ---- REPORTS --------------------------------------------------------------
+function loadReports() {
+  // Default to the current month on first open.
+  if (!document.getElementById('repFrom').value) presetThisMonth();
+}
+function fmtYMD(d) {
+  const z = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate());
+}
+function setRange(from, to) {
+  document.getElementById('repFrom').value = fmtYMD(from);
+  document.getElementById('repTo').value = fmtYMD(to);
+  runReport();
+}
+function presetThisWeek() {
+  const now = new Date();
+  const dow = (now.getDay() + 6) % 7; // 0 = Monday
+  const mon = new Date(now); mon.setDate(now.getDate() - dow);
+  setRange(mon, now);
+}
+function presetThisMonth() {
+  const now = new Date();
+  setRange(new Date(now.getFullYear(), now.getMonth(), 1), now);
+}
+function presetLastMonth() {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const last = new Date(now.getFullYear(), now.getMonth(), 0);
+  setRange(first, last);
+}
+document.getElementById('repThisWeek').addEventListener('click', presetThisWeek);
+document.getElementById('repThisMonth').addEventListener('click', presetThisMonth);
+document.getElementById('repLastMonth').addEventListener('click', presetLastMonth);
+document.getElementById('repView').addEventListener('click', runReport);
+document.getElementById('repDownload').addEventListener('click', () => {
+  const q = reportQuery();
+  if (!q) return;
+  window.location = '/api/report.csv?' + q;
+});
+function reportQuery() {
+  const from = document.getElementById('repFrom').value;
+  const to = document.getElementById('repTo').value;
+  if (!from || !to) { toast('Pick a start and end date', true); return null; }
+  // Convert the admin's LOCAL day selection into absolute UTC instants so the
+  // report matches their own calendar. End is the start of the day AFTER `to`.
+  const startIso = new Date(from + 'T00:00:00').toISOString();
+  const endLocal = new Date(to + 'T00:00:00');
+  endLocal.setDate(endLocal.getDate() + 1);
+  const endIso = endLocal.toISOString();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  return 'from=' + encodeURIComponent(startIso) +
+         '&to=' + encodeURIComponent(endIso) +
+         '&tz=' + encodeURIComponent(tz) +
+         '&label=' + encodeURIComponent(from + '_to_' + to);
+}
+async function runReport() {
+  const q = reportQuery();
+  if (!q) return;
+  const r = await api.get('/api/report/summary?' + q);
+  const el = document.getElementById('repResults');
+  if (!r.count) { el.innerHTML = '<div class="card"><div class="empty">No activity in this date range.</div></div>'; return; }
+  el.innerHTML =
+    '<div class="grid stats">' +
+      stat(r.byType.receive || 0, 'Units received') +
+      stat(r.byType.checkout || 0, 'Units taken') +
+      stat(r.byType.return || 0, 'Units returned') +
+      stat(r.count, 'Total movements') +
+    '</div>' +
+    '<div class="card"><h3>By item</h3>' +
+      table(['Item', 'Received', 'Taken', 'Returned'],
+        r.byItem.map((i) => `<tr><td>${escapeHtml(i.item)}</td><td class="num">${i.received}</td><td class="num">${i.taken}</td><td class="num">${i.returned}</td></tr>`)) +
+    '</div>' +
+    '<div class="card"><h3>Taken by tech</h3>' +
+      (r.byTech.length
+        ? table(['Tech', 'Units taken'], r.byTech.map((t) => `<tr><td>${escapeHtml(t.tech)}</td><td class="num">${t.taken}</td></tr>`))
+        : '<div class="empty">No checkouts in this range.</div>') +
+    '</div>';
 }
 
 // ---- table + util ---------------------------------------------------------
@@ -315,5 +435,50 @@ function toast(msg, isErr) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
-// initial
-loadDashboard();
+// ---- account & security ---------------------------------------------------
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  try { await api.post('/api/logout', {}); } catch (e) { /* ignore */ }
+  location.href = '/login.html';
+});
+
+document.getElementById('pwSave').addEventListener('click', async () => {
+  const current_password = document.getElementById('pwCurrent').value;
+  const new_password = document.getElementById('pwNew').value;
+  if (new_password.length < 8) return toast('New password must be at least 8 characters', true);
+  try {
+    await api.post('/api/account/password', { current_password, new_password });
+    document.getElementById('pwCurrent').value = '';
+    document.getElementById('pwNew').value = '';
+    toast('Password changed');
+  } catch (e) { toast(e.message, true); }
+});
+
+document.getElementById('genRecovery').addEventListener('click', async () => {
+  try {
+    const r = await api.post('/api/account/recovery-code', {});
+    document.getElementById('recoveryCode').textContent = r.recovery_code;
+    document.getElementById('recoveryBox').style.display = 'block';
+    document.getElementById('recoveryStatus').innerHTML = '<b>A recovery code is set.</b>';
+  } catch (e) { toast(e.message, true); }
+});
+
+async function refreshAccountStatus() {
+  try {
+    const a = await api.get('/api/account');
+    document.getElementById('recoveryStatus').innerHTML = a.recovery_set
+      ? '<b>A recovery code is already set.</b> Generating a new one replaces it.'
+      : '<b style="color:var(--signal);">No recovery code yet — set one up now.</b>';
+  } catch (e) { /* ignore */ }
+}
+
+// ---- session guard + init -------------------------------------------------
+(async function init() {
+  try {
+    const me = await api.get('/api/me'); // 401 if not signed in
+    document.getElementById('whoName').textContent = me.name || 'Admin';
+    loadDashboard();
+    refreshAccountStatus();
+  } catch (e) {
+    location.href = '/login.html';
+  }
+})();

@@ -15,9 +15,19 @@ CREATE TABLE IF NOT EXISTS users (
   name          TEXT NOT NULL,
   role          TEXT NOT NULL DEFAULT 'tech' CHECK (role IN ('admin','tech')),
   badge_barcode TEXT UNIQUE,            -- scanned at the kiosk to identify the tech
-  pin           TEXT,                   -- optional, for admin console login
+  pin           TEXT,                   -- legacy; superseded by password_hash
+  password_hash TEXT,                   -- scrypt hash for admin console login
+  recovery_hash TEXT,                   -- scrypt hash of the account recovery code
   active        INTEGER NOT NULL DEFAULT 1,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Admin login sessions (opaque cookie tokens).
+CREATE TABLE IF NOT EXISTS sessions (
+  token      TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS categories (
