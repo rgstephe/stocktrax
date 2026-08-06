@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StockTrax</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .landing { max-width: 640px; margin: 0 auto; padding: 80px 24px; text-align: center; }
+    .landing .wordmark { font-size: 44px; font-weight: 800; letter-spacing: -.03em; }
+    .landing .wordmark span { color: var(--signal); }
+    .landing .tag { color: var(--muted); font-size: 17px; margin: 6px 0 40px; }
+    .landing .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .landing a.card { display: block; text-decoration: none; color: var(--text); text-align: left; transition: border-color .15s ease; }
+    .landing a.card:hover { border-color: var(--accent); }
+    .landing a.card h2 { margin: 0 0 6px; font-size: 20px; }
+    .landing a.card p { margin: 0; color: var(--muted); font-size: 14px; }
+    @media (max-width: 520px) { .landing .pair { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="landing">
+    <div class="wordmark">Stock<span>Trax</span></div>
+    <p class="tag">Complete Inventory Control, On Your Terms</p>
+    <div class="pair">
+      <a class="card" href="/kiosk.html">
+        <h2>Stock Room Kiosk →</h2>
+        <p>Scan a badge, take or return items. Run this on the stock-room laptop.</p>
+      </a>
+      <a class="card" href="/admin.html">
+        <h2>Admin Console →</h2>
+        <p>Receive stock, manage techs and badges, review the log.</p>
+      </a>
+    </div>
+  </div>
+</body>
+</html>

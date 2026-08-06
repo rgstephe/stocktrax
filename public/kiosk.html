@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StockTrax — Stock Room Kiosk</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="kiosk">
+  <div class="kiosk-wrap">
+    <header class="kiosk-head">
+      <div class="wordmark">Stock<span>Trax</span></div>
+      <div class="tagline">Stock Room Kiosk</div>
+    </header>
+
+    <!-- IDLE: waiting for a badge scan -->
+    <section id="idle" class="scan-prompt">
+      <div class="icon" aria-hidden="true">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 5v14M7 5v14M11 5v14M15 5v14M19 5v14M21 5v14"/>
+        </svg>
+      </div>
+      <h1>Scan your badge to begin</h1>
+      <p>Hold your StockTrax badge up to the scanner.</p>
+    </section>
+
+    <!-- SESSION: a tech is logged in -->
+    <section id="session" style="display:none; flex:1; flex-direction:column;">
+      <div class="session-head">
+        <div class="who">
+          <small>Signed in</small>
+          <span id="techName">—</span>
+        </div>
+        <div class="mode-toggle" id="modeToggle">
+          <button class="active take" data-mode="checkout">Take</button>
+          <button data-mode="return">Return</button>
+        </div>
+      </div>
+
+      <div class="scan-line">
+        Now scan an item barcode to <b id="modeWord">take it out</b>.
+      </div>
+
+      <ul class="session-list" id="sessionList"></ul>
+
+      <div class="session-foot">
+        <button class="btn btn-go" id="doneBtn">Done — sign out</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- hidden input captures scanner keystrokes anywhere on the page -->
+  <input id="scanBuffer" class="hidden-input" autocomplete="off" />
+  <div class="toast" id="toast"></div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/kiosk.js"></script>
+</body>
+</html>

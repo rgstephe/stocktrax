@@ -1,0 +1,17 @@
+services:
+  stocktrax:
+    build: .
+    container_name: stocktrax
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Change these on first run.
+      COMPANY_NAME: "Ultra Pest Control"
+      ADMIN_PIN: "4242"
+      BARCODE_PROVIDER: "upcitemdb"   # or "openfoodfacts"
+      BARCODE_API_KEY: ""              # optional; free tier needs none
+      DATA_DIR: "/app/data"
+    volumes:
+      # Your database persists here across restarts and rebuilds.
+      - ./data:/app/data
