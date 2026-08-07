@@ -26,6 +26,8 @@ No cloud, no accounts to buy, no build step. One Docker container.
 - **Date-range reports.** Pick a week, a month, or any custom range, see a
   summary (received / taken / returned, by item and by tech), and download a
   CSV for your records.
+- **Stock locations.** Define your own rooms/areas (warehouse, chemical room,
+  tool room…) and assign one to each item, so techs can see where to grab it.
 - **White-labeling.** Set your company name, tagline, and logo in Settings and
   StockTrax rebrands itself across the kiosk, landing page, and browser tab.
 - **Full audit log.** Who took what, when — receives, checkouts, and returns.
@@ -120,9 +122,9 @@ into the code:
 
 ### Roadmap ideas
 - Photo upload for products without a database image
-- Locations (warehouse shelf / truck) per stock item
 - Per-item history view
 - Multiple admin accounts with roles/permissions
+- Report breakdowns by location
 
 ## Accounts & security
 
@@ -153,8 +155,14 @@ in with `Admin` and your old PIN, then change it.
 
 **Network exposure:** StockTrax is built to run on your own trusted network,
 like your other self-hosted tools. If you expose it to the public internet, put
-it behind a reverse proxy with HTTPS (and add `Secure;` to the session cookie in
-`src/server.js`).
+it behind a reverse proxy with HTTPS and set `COOKIE_SECURE=true`.
+
+**Additional hardening (v0.3.1):** admin sessions with scrypt-hashed passwords;
+a same-origin (CSRF) check on all state-changing requests; a Content-Security-
+Policy plus `nosniff`/`X-Frame-Options`/`Referrer-Policy` headers; server-side
+validation of uploaded logos (raster images only — SVG is rejected); a strict
+allowlist for settings keys; sanitized database error messages; and the app
+drops to a non-root user inside the container on startup.
 
 ## License
 

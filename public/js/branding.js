@@ -5,30 +5,36 @@
   fetch('/api/branding')
     .then((r) => r.json())
     .then((b) => {
-      const name = (b.company_name || 'StockTrax').trim();
+      const name = (b.company_name || '').trim();
+      const hasLogo = !!b.logo_data_url;
 
-      // If nothing's been customized, leave the hand-designed "StockTrax"
-      // wordmark (with its amber accent) exactly as authored.
-      const isDefault = name === 'StockTrax' && !b.logo_data_url;
-
-      // Browser tab title: "<Company> — <page context>"
+      // Browser tab needs text (a logo can't render in a tab): prefer the
+      // company name, then the tagline, then fall back to StockTrax.
+      const titleName = name || (b.tagline || '').trim() || 'StockTrax';
       const suffix = (document.title.split('—')[1] || '').trim();
-      document.title = suffix ? name + ' — ' + suffix : name;
+      document.title = suffix ? titleName + ' — ' + suffix : titleName;
 
-      // Wordmark: logo + name, or just the name.
-      if (!isDefault) document.querySelectorAll('.wordmark').forEach((el) => {
+      // Leave the hand-designed default "StockTrax" wordmark (amber accent)
+      // untouched only when truly unconfigured: no logo and no custom name.
+      const unconfigured = (!name || name === 'StockTrax') && !hasLogo;
+      if (unconfigured) return;
+
+      document.querySelectorAll('.wordmark').forEach((el) => {
         el.innerHTML = '';
-        if (b.logo_data_url) {
+        if (hasLogo) {
           const img = document.createElement('img');
           img.className = 'brand-logo';
           img.src = b.logo_data_url;
-          img.alt = '';
+          img.alt = name || 'logo';
           el.appendChild(img);
         }
-        const span = document.createElement('span');
-        span.className = 'brand-name';
-        span.textContent = name;
-        el.appendChild(span);
+        // Render text only if a name is set. Blank name + logo = logo only.
+        if (name) {
+          const span = document.createElement('span');
+          span.className = 'brand-name';
+          span.textContent = name;
+          el.appendChild(span);
+        }
       });
 
       // Marketing tagline (landing page only; kiosk keeps its context label).

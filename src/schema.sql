@@ -41,6 +41,14 @@ CREATE TABLE IF NOT EXISTS units (
   name TEXT NOT NULL UNIQUE
 );
 
+-- Physical rooms/areas stock lives in (warehouse, chemical room, tool room…).
+-- Not seeded — the user adds whatever rooms they want.
+CREATE TABLE IF NOT EXISTS locations (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL UNIQUE,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS items (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   barcode             TEXT UNIQUE,
@@ -48,6 +56,7 @@ CREATE TABLE IF NOT EXISTS items (
   brand               TEXT,
   category_id         INTEGER REFERENCES categories(id) ON DELETE SET NULL,
   unit_id             INTEGER REFERENCES units(id) ON DELETE SET NULL,
+  location_id         INTEGER REFERENCES locations(id) ON DELETE SET NULL,
   image_url           TEXT,
   quantity            INTEGER NOT NULL DEFAULT 0,
   low_stock_threshold INTEGER NOT NULL DEFAULT 0,

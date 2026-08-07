@@ -87,6 +87,7 @@ async function scanItem(code) {
 function addSessionRow(item, txMode, result) {
   const li = document.createElement('li');
   const sign = txMode === 'checkout' ? '−1' : '+1';
+  const where = item.location ? ' · ' + escapeHtml(item.location) : '';
   li.innerHTML =
     (item.image_url
       ? '<img class="thumb" src="' + escapeAttr(item.image_url) + '" alt="">'
@@ -94,7 +95,7 @@ function addSessionRow(item, txMode, result) {
     '<div class="meta">' +
       '<div class="nm">' + escapeHtml(item.name) + '</div>' +
       '<div class="sub">' + (txMode === 'checkout' ? 'Taken' : 'Returned') +
-        ' · now ' + result.quantity + ' on hand</div>' +
+        ' · now ' + result.quantity + ' on hand' + where + '</div>' +
     '</div>' +
     '<div class="amt ' + (txMode === 'checkout' ? 'take' : 'return') + '">' + sign + '</div>';
   sessionList.prepend(li);

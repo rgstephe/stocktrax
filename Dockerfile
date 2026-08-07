@@ -17,5 +17,8 @@ COPY . .
 ENV DATA_DIR=/app/data
 RUN mkdir -p /app/data
 
+# The container starts as root ONLY so the app can fix ownership of a
+# pre-existing (possibly root-owned) data volume; server.js then immediately
+# drops to the unprivileged built-in "node" user before opening the database.
 EXPOSE 3000
 CMD ["node", "src/server.js"]

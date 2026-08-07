@@ -38,6 +38,7 @@ function ensureColumn(table, column, decl) {
 }
 ensureColumn('users', 'password_hash', 'TEXT');
 ensureColumn('users', 'recovery_hash', 'TEXT');
+ensureColumn('items', 'location_id', 'INTEGER'); // stock room/area; locations table added via schema.sql
 db.exec(`CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL,

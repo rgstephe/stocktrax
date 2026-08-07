@@ -2,6 +2,7 @@
 
 let categories = [];
 let units = [];
+let locations = [];
 
 // ---- tabs -----------------------------------------------------------------
 document.getElementById('nav').addEventListener('click', (e) => {
@@ -26,6 +27,7 @@ function loadTab(name) {
 async function ensureTaxonomy() {
   if (!categories.length) categories = await api.get('/api/categories');
   if (!units.length) units = await api.get('/api/units');
+  if (!locations.length) locations = await api.get('/api/locations');
 }
 function optionList(rows, selected) {
   return ['<option value="">—</option>']
@@ -66,6 +68,7 @@ async function loadReceive() {
   await ensureTaxonomy();
   document.getElementById('rcvCategory').innerHTML = optionList(categories);
   document.getElementById('rcvUnit').innerHTML = optionList(units);
+  document.getElementById('rcvLocation').innerHTML = optionList(locations);
   const input = document.getElementById('rcvBarcode');
   input.value = '';
   input.focus();
@@ -102,6 +105,7 @@ async function doLookup(code) {
     fill('rcvName', res.item.name); fill('rcvBrand', res.item.brand || '');
     document.getElementById('rcvCategory').value = res.item.category_id || '';
     document.getElementById('rcvUnit').value = res.item.unit_id || '';
+    document.getElementById('rcvLocation').value = res.item.location_id || '';
     fill('rcvThreshold', res.item.low_stock_threshold || 0);
     fill('rcvImage', res.item.image_url || '');
   } else if (res.found === 'external') {
@@ -134,6 +138,7 @@ document.getElementById('rcvSave').addEventListener('click', async () => {
         low_stock_threshold: Number(val('rcvThreshold')) || 0,
         category_id: numOrNull('rcvCategory'),
         unit_id: numOrNull('rcvUnit'),
+        location_id: numOrNull('rcvLocation'),
         image_url: val('rcvImage') || null,
       });
     } else {
@@ -144,6 +149,7 @@ document.getElementById('rcvSave').addEventListener('click', async () => {
         brand: val('rcvBrand'),
         category_id: numOrNull('rcvCategory'),
         unit_id: numOrNull('rcvUnit'),
+        location_id: numOrNull('rcvLocation'),
         image_url: val('rcvImage') || null,
         low_stock_threshold: Number(val('rcvThreshold')) || 0,
         quantity: 0,
@@ -174,11 +180,12 @@ function previewCard(img, name, brand, src) {
 async function loadItems() {
   const items = await api.get('/api/items');
   document.getElementById('itemsTable').innerHTML = items.length
-    ? table(['', 'Item', 'Category', 'On hand', 'Threshold', 'Barcode'],
+    ? table(['', 'Item', 'Category', 'Location', 'On hand', 'Threshold', 'Barcode'],
         items.map((i) => `<tr class="${i.low ? 'is-low' : ''}">
           <td>${i.image_url ? `<img class="thumb-sm" src="${escapeAttr(i.image_url)}">` : '<span class="thumb-sm"></span>'}</td>
           <td>${escapeHtml(i.name)}${i.low ? ' <span class="pill low">LOW</span>' : ''}<br><small class="src" style="color:var(--muted)">${escapeHtml(i.brand || '')}</small></td>
           <td>${escapeHtml(i.category || '')}</td>
+          <td>${escapeHtml(i.location || '')}</td>
           <td class="num">${i.quantity} ${escapeHtml(i.unit || '')}</td>
           <td class="num">${i.low_stock_threshold || '—'}</td>
           <td class="sku">${escapeHtml(i.barcode || '—')}</td>
@@ -262,6 +269,7 @@ async function loadSettings() {
   document.getElementById('setApiKey').placeholder = s.has_barcode_api_key ? '•••••• (saved)' : 'Leave blank for free tier';
   renderChips('catList', categories, 'category');
   renderChips('unitList', units, 'unit');
+  renderChips('locationList', locations, 'location');
   refreshAccountStatus();
   document.getElementById('recoveryBox').style.display = 'none';
 }
@@ -289,7 +297,7 @@ document.getElementById('logoClear').addEventListener('click', () => {
 
 document.getElementById('setBrandSave').addEventListener('click', async () => {
   const body = {
-    company_name: val('setCompany') || 'StockTrax',
+    company_name: val('setCompany'),
     brand_tagline: val('setTagline'),
   };
   if (pendingLogo !== undefined) body.logo_data_url = pendingLogo;
@@ -318,6 +326,15 @@ document.getElementById('addUnit').addEventListener('click', async () => {
   units = await api.get('/api/units');
   document.getElementById('newUnit').value = '';
   renderChips('unitList', units, 'unit');
+});
+document.getElementById('addLocation').addEventListener('click', async () => {
+  const name = val('newLocation'); if (!name) return;
+  try {
+    await api.post('/api/locations', { name });
+    locations = await api.get('/api/locations');
+    document.getElementById('newLocation').value = '';
+    renderChips('locationList', locations, 'location');
+  } catch (e) { toast(e.message, true); }
 });
 function renderChips(elId, rows, label) {
   document.getElementById(elId).innerHTML = rows.length

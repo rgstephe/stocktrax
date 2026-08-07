@@ -12,7 +12,29 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
+const { execSync } = require('child_process');
 const express = require('express');
+
+// --- run as non-root -------------------------------------------------------
+// If we start as root (default in the container), make the data directory
+// owned by the unprivileged "node" user, then drop to it before we open the
+// database or listen. This self-corrects an existing root-owned ./data volume,
+// so no manual chown is needed on upgrade.
+(function dropPrivileges() {
+  try {
+    if (process.platform !== 'linux' || !process.getuid || process.getuid() !== 0) return;
+    const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+    fs.mkdirSync(dataDir, { recursive: true });
+    try { execSync(`chown -R node:node "${dataDir}"`); } catch (e) { /* best effort */ }
+    process.setgid('node');
+    process.setuid('node');
+    console.log('[startup] dropped privileges to non-root user "node"');
+  } catch (e) {
+    console.error('[startup] could not drop privileges:', e.message);
+  }
+})();
+
 const db = require('./db');
 const { lookup } = require('./barcode');
 const { hashPassword, verifyPassword, generateRecoveryCode, randomToken } = require('./auth');
@@ -25,10 +47,44 @@ app.set('trust proxy', true);
 app.use(express.json({ limit: '4mb' })); // headroom for base64 logo uploads
 
 // Basic security headers.
+// Security headers, including a Content-Security-Policy. 'unsafe-inline' is
+// present because the app uses a few inline handlers; even so, the CSP blocks
+// external script/object sources and clickjacking, which is the main benefit.
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "img-src 'self' data:",
+      "style-src 'self' 'unsafe-inline'",
+      "script-src 'self' 'unsafe-inline'",
+      "connect-src 'self'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'self'",
+      "form-action 'self'",
+    ].join('; ')
+  );
+  next();
+});
+
+// CSRF defense: for state-changing requests, require that the browser's Origin
+// (or Referer) matches this host. Browsers always send Origin on cross-site
+// POST/PUT/PATCH, so this blocks forged requests without needing token plumbing.
+// Non-browser clients (no Origin/Referer) are allowed — they aren't a CSRF vector.
+function isSameOrigin(req) {
+  const host = req.headers.host;
+  const source = req.headers.origin || req.headers.referer;
+  if (!source) return true;
+  try { return new URL(source).host === host; } catch (e) { return false; }
+}
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !isSameOrigin(req)) {
+    return res.status(403).json({ error: 'Cross-origin request blocked' });
+  }
   next();
 });
 
@@ -60,6 +116,35 @@ function itemWithLabels(row) {
   return { ...row, low: row.quantity <= row.low_stock_threshold && row.low_stock_threshold > 0 };
 }
 
+// Turn low-level SQLite constraint errors into friendly messages (and avoid
+// leaking schema detail). Business errors thrown as plain Error pass through.
+function cleanDbError(err) {
+  const code = err && err.code;
+  if (typeof code === 'string' && code.startsWith('SQLITE_')) {
+    if (code.includes('UNIQUE')) return 'That value is already in use.';
+    if (code.includes('NOTNULL')) return 'A required field is missing.';
+    if (code.includes('CHECK')) return "That value isn't allowed.";
+    if (code.includes('FOREIGNKEY')) return 'A related record was not found.';
+    return 'Could not save — please check the values and try again.';
+  }
+  return (err && err.message) ? err.message : 'Request failed';
+}
+
+// Only these settings keys may be written, and some are format-checked.
+const ALLOWED_SETTINGS = new Set([
+  'company_name', 'brand_tagline', 'logo_data_url', 'barcode_provider', 'barcode_api_key',
+]);
+const BARCODE_PROVIDERS = ['upcitemdb', 'openfoodfacts'];
+
+// Accept only real raster-image data URLs. Rejecting SVG removes the stored-XSS
+// vector (SVG can carry script); raster images cannot execute.
+function isValidLogoDataUrl(v) {
+  if (v === '') return true; // empty clears the logo
+  if (typeof v !== 'string') return false;
+  if (v.length > 3_000_000) return false; // ~2 MB of base64
+  return /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(v);
+}
+
 // ---- auth plumbing --------------------------------------------------------
 
 function parseCookies(req) {
@@ -74,11 +159,13 @@ function parseCookies(req) {
 }
 
 function setSessionCookie(res, token) {
-  // Add "Secure;" below if you serve StockTrax over HTTPS behind a proxy.
-  res.setHeader('Set-Cookie', `st_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MS / 1000}`);
+  // Set COOKIE_SECURE=true once you serve StockTrax over HTTPS.
+  const secure = String(process.env.COOKIE_SECURE || '').toLowerCase() === 'true' ? ' Secure;' : '';
+  res.setHeader('Set-Cookie', `st_session=${token}; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=${SESSION_MS / 1000}`);
 }
 function clearSessionCookie(res) {
-  res.setHeader('Set-Cookie', 'st_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+  const secure = String(process.env.COOKIE_SECURE || '').toLowerCase() === 'true' ? ' Secure;' : '';
+  res.setHeader('Set-Cookie', `st_session=; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=0`);
 }
 
 function currentUser(req) {
@@ -148,7 +235,14 @@ app.get('/api/users/badge/:barcode', (req, res) => {
 });
 
 app.get('/api/items/barcode/:barcode', (req, res) => {
-  const row = db.prepare('SELECT * FROM items WHERE barcode = ?').get(req.params.barcode.trim());
+  const row = db
+    .prepare(
+      `SELECT i.*, l.name AS location
+       FROM items i
+       LEFT JOIN locations l ON l.id = i.location_id
+       WHERE i.barcode = ?`
+    )
+    .get(req.params.barcode.trim());
   if (!row) return res.status(404).json({ error: 'Not found' });
   res.json(itemWithLabels(row));
 });
@@ -171,7 +265,7 @@ app.post('/api/transactions', optionalAuth, (req, res) => {
   try {
     res.status(201).json(applyMovement(item_id, user_id || null, type, quantity, b.note));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: cleanDbError(err) });
   }
 });
 
@@ -277,7 +371,7 @@ app.get('/api/lookup/:barcode', async (req, res) => {
     if (product && product.name) return res.json({ found: 'external', product });
     return res.json({ found: 'none' });
   } catch (err) {
-    return res.json({ found: 'error', error: err.message });
+    return res.json({ found: 'error', error: cleanDbError(err) });
   }
 });
 
@@ -286,10 +380,11 @@ app.get('/api/lookup/:barcode', async (req, res) => {
 app.get('/api/items', (req, res) => {
   const rows = db
     .prepare(
-      `SELECT i.*, c.name AS category, u.name AS unit
+      `SELECT i.*, c.name AS category, u.name AS unit, l.name AS location
        FROM items i
        LEFT JOIN categories c ON c.id = i.category_id
        LEFT JOIN units u ON u.id = i.unit_id
+       LEFT JOIN locations l ON l.id = i.location_id
        WHERE i.active = 1
        ORDER BY i.name COLLATE NOCASE`
     )
@@ -303,8 +398,8 @@ app.post('/api/items', (req, res) => {
   try {
     const info = db
       .prepare(
-        `INSERT INTO items (barcode, name, brand, category_id, unit_id, image_url, quantity, low_stock_threshold, notes)
-         VALUES (@barcode, @name, @brand, @category_id, @unit_id, @image_url, @quantity, @low_stock_threshold, @notes)`
+        `INSERT INTO items (barcode, name, brand, category_id, unit_id, location_id, image_url, quantity, low_stock_threshold, notes)
+         VALUES (@barcode, @name, @brand, @category_id, @unit_id, @location_id, @image_url, @quantity, @low_stock_threshold, @notes)`
       )
       .run({
         barcode: b.barcode || null,
@@ -312,6 +407,7 @@ app.post('/api/items', (req, res) => {
         brand: b.brand || null,
         category_id: b.category_id || null,
         unit_id: b.unit_id || null,
+        location_id: b.location_id || null,
         image_url: b.image_url || null,
         quantity: Number(b.quantity) || 0,
         low_stock_threshold: Number(b.low_stock_threshold) || 0,
@@ -320,13 +416,13 @@ app.post('/api/items', (req, res) => {
     const row = db.prepare('SELECT * FROM items WHERE id = ?').get(info.lastInsertRowid);
     res.status(201).json(itemWithLabels(row));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: cleanDbError(err) });
   }
 });
 
 app.patch('/api/items/:id', (req, res) => {
   const b = req.body || {};
-  const fields = ['barcode', 'name', 'brand', 'category_id', 'unit_id', 'image_url', 'low_stock_threshold', 'notes'];
+  const fields = ['barcode', 'name', 'brand', 'category_id', 'unit_id', 'location_id', 'image_url', 'low_stock_threshold', 'notes'];
   const sets = [];
   const params = { id: req.params.id };
   for (const f of fields) if (f in b) { sets.push(`${f} = @${f}`); params[f] = b[f]; }
@@ -337,7 +433,7 @@ app.patch('/api/items/:id', (req, res) => {
     const row = db.prepare('SELECT * FROM items WHERE id = ?').get(req.params.id);
     res.json(itemWithLabels(row));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: cleanDbError(err) });
   }
 });
 
@@ -379,7 +475,7 @@ app.post('/api/users', (req, res) => {
       .run(b.name, b.role === 'admin' ? 'admin' : 'tech', badge);
     res.status(201).json(db.prepare('SELECT id, name, role, badge_barcode, active FROM users WHERE id = ?').get(info.lastInsertRowid));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: cleanDbError(err) });
   }
 });
 
@@ -394,7 +490,7 @@ app.patch('/api/users/:id', (req, res) => {
     db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = @id`).run(params);
     res.json(db.prepare('SELECT id, name, role, badge_barcode, active FROM users WHERE id = ?').get(req.params.id));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: cleanDbError(err) });
   }
 });
 
@@ -409,7 +505,7 @@ app.post('/api/categories', (req, res) => {
   try {
     const info = db.prepare('INSERT INTO categories (name) VALUES (?)').run(name);
     res.status(201).json(db.prepare('SELECT * FROM categories WHERE id = ?').get(info.lastInsertRowid));
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) { res.status(400).json({ error: cleanDbError(err) }); }
 });
 
 app.get('/api/units', (req, res) => {
@@ -421,7 +517,19 @@ app.post('/api/units', (req, res) => {
   try {
     const info = db.prepare('INSERT INTO units (name) VALUES (?)').run(name);
     res.status(201).json(db.prepare('SELECT * FROM units WHERE id = ?').get(info.lastInsertRowid));
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) { res.status(400).json({ error: cleanDbError(err) }); }
+});
+
+app.get('/api/locations', (req, res) => {
+  res.json(db.prepare('SELECT * FROM locations ORDER BY sort_order, name').all());
+});
+app.post('/api/locations', (req, res) => {
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+  try {
+    const info = db.prepare('INSERT INTO locations (name) VALUES (?)').run(name);
+    res.status(201).json(db.prepare('SELECT * FROM locations WHERE id = ?').get(info.lastInsertRowid));
+  } catch (err) { res.status(400).json({ error: cleanDbError(err) }); }
 });
 
 // --- dashboard -------------------------------------------------------------
@@ -463,7 +571,17 @@ app.get('/api/settings', (req, res) => {
 app.put('/api/settings', (req, res) => {
   const b = req.body || {};
   const up = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
-  for (const [k, v] of Object.entries(b)) up.run(k, String(v));
+  for (const [k, v] of Object.entries(b)) {
+    if (!ALLOWED_SETTINGS.has(k)) continue; // ignore unknown keys
+    const val = String(v);
+    if (k === 'logo_data_url' && !isValidLogoDataUrl(val)) {
+      return res.status(400).json({ error: 'Logo must be a PNG, JPG, WebP, or GIF image.' });
+    }
+    if (k === 'barcode_provider' && !BARCODE_PROVIDERS.includes(val)) {
+      return res.status(400).json({ error: 'Unknown barcode provider.' });
+    }
+    up.run(k, val);
+  }
   res.json({ ok: true });
 });
 

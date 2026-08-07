@@ -57,6 +57,7 @@
           <div class="row">
             <div class="field"><label>Category</label><select id="rcvCategory"></select></div>
             <div class="field"><label>Unit</label><select id="rcvUnit"></select></div>
+            <div class="field"><label>Location</label><select id="rcvLocation"></select></div>
           </div>
           <div class="row">
             <div class="field mono"><label>Quantity received</label><input id="rcvQty" type="number" min="1" value="1" /></div>
@@ -140,8 +141,8 @@
               <span style="color:var(--muted); font-size:12px;">No logo</span>
             </div>
             <div>
-              <input id="logoFile" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" />
-              <p style="color:var(--muted); font-size:12px; margin:8px 0 0;">PNG, JPG, SVG, or WebP. Square works best. Under ~1&nbsp;MB.</p>
+              <input id="logoFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+              <p style="color:var(--muted); font-size:12px; margin:8px 0 0;">PNG, JPG, WebP, or GIF. Square works best. Under ~1&nbsp;MB.</p>
               <button class="btn btn-sm btn-ghost" id="logoClear" style="margin-top:8px;">Remove logo</button>
             </div>
           </div>
@@ -202,6 +203,16 @@
             <div class="field" style="margin:0;"><input id="newUnit" placeholder="New unit" /></div>
             <button class="btn btn-sm" id="addUnit" style="flex:0;">Add</button>
           </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Stock locations</h3>
+        <p style="margin:-6px 0 14px; color:var(--muted); font-size:13px;">Rooms or areas your stock lives in — warehouse, chemical room, tool room, etc. Assign one to each item when receiving.</p>
+        <div id="locationList"></div>
+        <div class="row" style="margin-top:12px; max-width:420px;">
+          <div class="field" style="margin:0;"><input id="newLocation" placeholder="New location (e.g. Chemical Room)" /></div>
+          <button class="btn btn-sm" id="addLocation" style="flex:0;">Add</button>
         </div>
       </div>
     </section>
