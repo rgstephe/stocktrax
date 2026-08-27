@@ -10,7 +10,10 @@
   <div class="kiosk-wrap">
     <header class="kiosk-head">
       <div class="wordmark">Stock<span>Trax</span></div>
-      <div class="tagline">Stock Room Kiosk</div>
+      <div class="head-right">
+        <div class="tagline">Stock Room Kiosk</div>
+        <button class="theme-toggle" id="themeToggle" title="Switch light/dark" aria-label="Switch light or dark mode">☀️</button>
+      </div>
     </header>
 
     <!-- IDLE: waiting for a badge scan -->
@@ -22,6 +25,7 @@
       </div>
       <h1>Scan your badge to begin</h1>
       <p>Hold your StockTrax badge up to the scanner.</p>
+      <button class="btn cam-btn" id="camLoginBtn">📷 Scan badge with camera</button>
     </section>
 
     <!-- SESSION: a tech is logged in -->
@@ -55,6 +59,8 @@
 
   <script src="/js/api.js"></script>
   <script src="/js/branding.js"></script>
+  <script src="/js/theme.js"></script>
+  <script src="/js/scanner.js"></script>
   <script src="/js/kiosk.js"></script>
 </body>
 </html>

@@ -38,6 +38,7 @@ const express = require('express');
 const db = require('./db');
 const { lookup } = require('./barcode');
 const { hashPassword, verifyPassword, generateRecoveryCode, randomToken } = require('./auth');
+const pkg = require('../package.json');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -132,7 +133,7 @@ function cleanDbError(err) {
 
 // Only these settings keys may be written, and some are format-checked.
 const ALLOWED_SETTINGS = new Set([
-  'company_name', 'brand_tagline', 'logo_data_url', 'barcode_provider', 'barcode_api_key',
+  'company_name', 'brand_tagline', 'logo_data_url', 'barcode_provider', 'barcode_api_key', 'theme_default',
 ]);
 const BARCODE_PROVIDERS = ['upcitemdb', 'openfoodfacts'];
 
@@ -223,7 +224,12 @@ app.get('/api/branding', (req, res) => {
     company_name: getSetting('company_name', 'StockTrax'),
     tagline: getSetting('brand_tagline', 'Complete Inventory Control, On Your Terms'),
     logo_data_url: getSetting('logo_data_url', ''),
+    theme_default: getSetting('theme_default', 'dark'),
   });
+});
+
+app.get('/api/version', (req, res) => {
+  res.json({ version: pkg.version, name: 'StockTrax' });
 });
 
 app.get('/api/users/badge/:barcode', (req, res) => {
@@ -378,6 +384,7 @@ app.get('/api/lookup/:barcode', async (req, res) => {
 // --- items -----------------------------------------------------------------
 
 app.get('/api/items', (req, res) => {
+  const includeInactive = req.query.include_inactive === '1';
   const rows = db
     .prepare(
       `SELECT i.*, c.name AS category, u.name AS unit, l.name AS location
@@ -385,11 +392,26 @@ app.get('/api/items', (req, res) => {
        LEFT JOIN categories c ON c.id = i.category_id
        LEFT JOIN units u ON u.id = i.unit_id
        LEFT JOIN locations l ON l.id = i.location_id
-       WHERE i.active = 1
+       ${includeInactive ? '' : 'WHERE i.active = 1'}
        ORDER BY i.name COLLATE NOCASE`
     )
     .all();
   res.json(rows.map(itemWithLabels));
+});
+
+// Suggest the next auto-generated in-house barcode (STK-#####) for stock that
+// has no manufacturer barcode. Uniqueness is guaranteed by scanning existing.
+function nextAutoBarcode() {
+  const rows = db.prepare("SELECT barcode FROM items WHERE barcode LIKE 'STK-%'").all();
+  let max = 0;
+  for (const r of rows) {
+    const m = /^STK-(\d+)$/.exec(r.barcode || '');
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return 'STK-' + String(max + 1).padStart(5, '0');
+}
+app.get('/api/items/next-barcode', (req, res) => {
+  res.json({ barcode: nextAutoBarcode() });
 });
 
 app.post('/api/items', (req, res) => {
@@ -422,7 +444,7 @@ app.post('/api/items', (req, res) => {
 
 app.patch('/api/items/:id', (req, res) => {
   const b = req.body || {};
-  const fields = ['barcode', 'name', 'brand', 'category_id', 'unit_id', 'location_id', 'image_url', 'low_stock_threshold', 'notes'];
+  const fields = ['barcode', 'name', 'brand', 'category_id', 'unit_id', 'location_id', 'image_url', 'low_stock_threshold', 'notes', 'active'];
   const sets = [];
   const params = { id: req.params.id };
   for (const f of fields) if (f in b) { sets.push(`${f} = @${f}`); params[f] = b[f]; }
@@ -435,6 +457,58 @@ app.patch('/api/items/:id', (req, res) => {
   } catch (err) {
     res.status(400).json({ error: cleanDbError(err) });
   }
+});
+
+// Manual stock adjustment: set the on-hand count to a corrected value and log
+// why (physical recount, breakage, etc.). Recorded as an 'adjustment' movement.
+const applyAdjustment = db.transaction((itemId, userId, newCount, note) => {
+  const item = db.prepare('SELECT * FROM items WHERE id = ?').get(itemId);
+  if (!item) throw new Error('Item not found');
+  db.prepare("UPDATE items SET quantity = ?, updated_at = datetime('now') WHERE id = ?").run(newCount, itemId);
+  const fullNote = `Set to ${newCount} (was ${item.quantity}).` + (note ? ' ' + note : '');
+  db.prepare('INSERT INTO transactions (item_id, user_id, type, quantity, note) VALUES (?, ?, ?, ?, ?)')
+    .run(itemId, userId, 'adjustment', newCount, fullNote);
+  return { quantity: newCount, was: item.quantity };
+});
+app.post('/api/items/:id/adjust', (req, res) => {
+  const b = req.body || {};
+  const count = Number(b.count);
+  if (!Number.isInteger(count) || count < 0) {
+    return res.status(400).json({ error: 'Enter a whole number of 0 or more.' });
+  }
+  try {
+    res.json(applyAdjustment(req.params.id, req.user.id, count, (b.note || '').trim()));
+  } catch (err) {
+    res.status(400).json({ error: cleanDbError(err) });
+  }
+});
+
+// Full inventory export as CSV (includes inactive items, flagged).
+app.get('/api/items.csv', (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT i.name, i.brand, c.name AS category, l.name AS location, u.name AS unit,
+              i.quantity, i.low_stock_threshold, i.barcode, i.active
+       FROM items i
+       LEFT JOIN categories c ON c.id = i.category_id
+       LEFT JOIN locations l ON l.id = i.location_id
+       LEFT JOIN units u ON u.id = i.unit_id
+       ORDER BY i.name COLLATE NOCASE`
+    )
+    .all();
+  const esc = (v) => {
+    const s = v == null ? '' : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const header = ['Name', 'Brand', 'Category', 'Location', 'Unit', 'Quantity', 'Low stock at', 'Barcode', 'Active'];
+  const lines = [header.join(',')];
+  for (const r of rows) {
+    lines.push([r.name, r.brand, r.category, r.location, r.unit, r.quantity, r.low_stock_threshold, r.barcode, r.active ? 'Yes' : 'No'].map(esc).join(','));
+  }
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="stocktrax_inventory_${stamp}.csv"`);
+  res.send(lines.join('\r\n'));
 });
 
 app.get('/api/transactions', (req, res) => {
@@ -579,6 +653,9 @@ app.put('/api/settings', (req, res) => {
     }
     if (k === 'barcode_provider' && !BARCODE_PROVIDERS.includes(val)) {
       return res.status(400).json({ error: 'Unknown barcode provider.' });
+    }
+    if (k === 'theme_default' && !['light', 'dark'].includes(val)) {
+      return res.status(400).json({ error: 'Theme must be light or dark.' });
     }
     up.run(k, val);
   }

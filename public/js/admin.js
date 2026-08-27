@@ -72,6 +72,7 @@ async function loadReceive() {
   const input = document.getElementById('rcvBarcode');
   input.value = '';
   input.focus();
+  document.getElementById('rcvLabelArea').innerHTML = '';
 }
 
 document.getElementById('rcvBarcode').addEventListener('keydown', async (e) => {
@@ -84,6 +85,7 @@ document.getElementById('rcvBarcode').addEventListener('keydown', async (e) => {
 async function doLookup(code) {
   const preview = document.getElementById('rcvPreview');
   const form = document.getElementById('rcvForm');
+  document.getElementById('rcvLabelArea').innerHTML = '';
   preview.innerHTML = '<div class="preview">Looking up…</div>';
   pendingItem = null;
 
@@ -160,12 +162,37 @@ document.getElementById('rcvSave').addEventListener('click', async () => {
     toast(`Added ${qty} · now ${r.quantity} on hand`);
     document.getElementById('rcvForm').style.display = 'none';
     document.getElementById('rcvPreview').innerHTML = '';
+    // For a newly created item that has a barcode, offer a printable label
+    // (especially useful for the auto-generated STK-##### codes).
+    if (!pendingItem && barcode) {
+      printLabel(barcode, val('rcvName'), 'rcvLabelArea');
+    }
     const input = document.getElementById('rcvBarcode');
     input.value = ''; input.focus();
     pendingItem = null;
   } catch (err) {
     toast(err.message, true);
   }
+});
+
+// Cancel the receive form without saving.
+document.getElementById('rcvCancel').addEventListener('click', () => {
+  document.getElementById('rcvForm').style.display = 'none';
+  document.getElementById('rcvPreview').innerHTML = '';
+  document.getElementById('rcvLabelArea').innerHTML = '';
+  const input = document.getElementById('rcvBarcode');
+  input.value = ''; input.focus();
+  pendingItem = null;
+});
+
+// Generate an in-house barcode for stock that has none.
+document.getElementById('rcvGenBarcode').addEventListener('click', async () => {
+  try {
+    const { barcode } = await api.get('/api/items/next-barcode');
+    document.getElementById('rcvBarcode').value = barcode;
+    await doLookup(barcode); // new code -> shows the manual entry form
+    toast('Generated ' + barcode + ' — fill in the details');
+  } catch (e) { toast(e.message, true); }
 });
 
 function previewCard(img, name, brand, src) {
@@ -177,20 +204,135 @@ function previewCard(img, name, brand, src) {
 }
 
 // ---- ITEMS ----------------------------------------------------------------
+let itemsById = {};
+
 async function loadItems() {
-  const items = await api.get('/api/items');
+  const includeInactive = document.getElementById('showInactive') && document.getElementById('showInactive').checked;
+  const items = await api.get('/api/items' + (includeInactive ? '?include_inactive=1' : ''));
+  itemsById = {};
+  items.forEach((i) => { itemsById[i.id] = i; });
   document.getElementById('itemsTable').innerHTML = items.length
-    ? table(['', 'Item', 'Category', 'Location', 'On hand', 'Threshold', 'Barcode'],
-        items.map((i) => `<tr class="${i.low ? 'is-low' : ''}">
+    ? table(['', 'Item', 'Category', 'Location', 'On hand', 'Threshold', 'Barcode', ''],
+        items.map((i) => `<tr class="${i.low ? 'is-low' : ''}" style="${i.active ? '' : 'opacity:.55;'}">
           <td>${i.image_url ? `<img class="thumb-sm" src="${escapeAttr(i.image_url)}">` : '<span class="thumb-sm"></span>'}</td>
-          <td>${escapeHtml(i.name)}${i.low ? ' <span class="pill low">LOW</span>' : ''}<br><small class="src" style="color:var(--muted)">${escapeHtml(i.brand || '')}</small></td>
+          <td>${escapeHtml(i.name)}${i.low ? ' <span class="pill low">LOW</span>' : ''}${i.active ? '' : ' <span class="pill adjustment">inactive</span>'}<br><small class="src" style="color:var(--muted)">${escapeHtml(i.brand || '')}</small></td>
           <td>${escapeHtml(i.category || '')}</td>
           <td>${escapeHtml(i.location || '')}</td>
           <td class="num">${i.quantity} ${escapeHtml(i.unit || '')}</td>
           <td class="num">${i.low_stock_threshold || '—'}</td>
           <td class="sku">${escapeHtml(i.barcode || '—')}</td>
+          <td><div class="item-actions">
+            <button class="btn btn-sm" onclick="editItem(${i.id})">Edit</button>
+            <button class="btn btn-sm" onclick="adjustItem(${i.id})">Adjust</button>
+            ${i.barcode ? `<button class="btn btn-sm" onclick="labelItem(${i.id})">Label</button>` : ''}
+            <button class="btn btn-sm" onclick="toggleItemActive(${i.id})">${i.active ? 'Deactivate' : 'Reactivate'}</button>
+          </div></td>
         </tr>`))
     : '<div class="empty">No items yet. Head to <b>Receive Stock</b> to add your first product.</div>';
+}
+
+document.getElementById('showInactive').addEventListener('change', loadItems);
+document.getElementById('itemsExport').addEventListener('click', () => { window.location = '/api/items.csv'; });
+
+function editItem(id) {
+  const i = itemsById[id];
+  openModal(`
+    <h3>Edit item</h3>
+    <div class="row"><div class="field"><label>Name</label><input id="edName" value="${escapeAttr(i.name)}"></div>
+      <div class="field"><label>Brand</label><input id="edBrand" value="${escapeAttr(i.brand || '')}"></div></div>
+    <div class="row"><div class="field"><label>Category</label><select id="edCategory">${optionList(categories, i.category_id)}</select></div>
+      <div class="field"><label>Unit</label><select id="edUnit">${optionList(units, i.unit_id)}</select></div>
+      <div class="field"><label>Location</label><select id="edLocation">${optionList(locations, i.location_id)}</select></div></div>
+    <div class="row"><div class="field mono"><label>Barcode</label><input id="edBarcode" value="${escapeAttr(i.barcode || '')}"></div>
+      <div class="field mono"><label>Low-stock alert at</label><input id="edThreshold" type="number" min="0" value="${i.low_stock_threshold || 0}"></div></div>
+    <div class="field"><label>Image URL</label><input id="edImage" value="${escapeAttr(i.image_url || '')}"></div>
+    <div class="field"><label>Notes</label><input id="edNotes" value="${escapeAttr(i.notes || '')}"></div>
+    <p style="color:var(--muted);font-size:12px;margin:0;">To change the on-hand quantity, use <b>Adjust</b> instead — it keeps an audit record.</p>
+    <div class="modal-actions"><button class="btn btn-primary" onclick="saveEdit(${id})">Save changes</button><button class="btn btn-ghost" onclick="closeModal()">Cancel</button></div>
+  `);
+}
+async function saveEdit(id) {
+  try {
+    await api.patch('/api/items/' + id, {
+      name: document.getElementById('edName').value.trim(),
+      brand: document.getElementById('edBrand').value.trim() || null,
+      category_id: numOrNull('edCategory'),
+      unit_id: numOrNull('edUnit'),
+      location_id: numOrNull('edLocation'),
+      barcode: document.getElementById('edBarcode').value.trim() || null,
+      low_stock_threshold: Number(document.getElementById('edThreshold').value) || 0,
+      image_url: document.getElementById('edImage').value.trim() || null,
+      notes: document.getElementById('edNotes').value.trim() || null,
+    });
+    closeModal(); await loadItems(); toast('Item updated');
+  } catch (e) { toast(e.message, true); }
+}
+
+function adjustItem(id) {
+  const i = itemsById[id];
+  openModal(`
+    <h3>Adjust stock — ${escapeHtml(i.name)}</h3>
+    <p style="color:var(--muted);font-size:13px;margin-top:-8px;">Current on hand: <b>${i.quantity} ${escapeHtml(i.unit || '')}</b>. Enter the corrected count and (optionally) why.</p>
+    <div class="field mono" style="max-width:220px;"><label>New on-hand count</label><input id="adjCount" type="number" min="0" value="${i.quantity}"></div>
+    <div class="field"><label>Reason (optional)</label><input id="adjNote" placeholder="e.g. physical recount, breakage"></div>
+    <div class="modal-actions"><button class="btn btn-primary" onclick="saveAdjust(${id})">Save adjustment</button><button class="btn btn-ghost" onclick="closeModal()">Cancel</button></div>
+  `);
+}
+async function saveAdjust(id) {
+  const count = Number(document.getElementById('adjCount').value);
+  if (!Number.isInteger(count) || count < 0) return toast('Enter a whole number of 0 or more', true);
+  try {
+    const r = await api.post('/api/items/' + id + '/adjust', { count, note: document.getElementById('adjNote').value.trim() });
+    closeModal(); await loadItems(); toast(`Adjusted to ${r.quantity} (was ${r.was})`);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function toggleItemActive(id) {
+  const i = itemsById[id];
+  const makeInactive = !!i.active;
+  if (makeInactive && !confirm(`Deactivate "${i.name}"? It'll be hidden from the kiosk and item list, but its history is kept and you can reactivate it later.`)) return;
+  try {
+    await api.patch('/api/items/' + id, { active: makeInactive ? 0 : 1 });
+    await loadItems();
+    toast(makeInactive ? 'Item deactivated' : 'Item reactivated');
+  } catch (e) { toast(e.message, true); }
+}
+
+function labelItem(id) {
+  const i = itemsById[id];
+  printLabel(i.barcode, i.name, 'itemLabelArea');
+}
+
+// ---- modal helpers --------------------------------------------------------
+function openModal(html) {
+  document.getElementById('modalBox').innerHTML = html;
+  document.getElementById('modalBackdrop').classList.add('show');
+}
+function closeModal() {
+  document.getElementById('modalBackdrop').classList.remove('show');
+  document.getElementById('modalBox').innerHTML = '';
+}
+document.getElementById('modalBackdrop').addEventListener('click', (e) => {
+  if (e.target.id === 'modalBackdrop') closeModal();
+});
+
+// ---- printable barcode label (reused for items and badges) ----------------
+function printLabel(code, title, areaId) {
+  const area = document.getElementById(areaId);
+  let svg;
+  try {
+    svg = Code39.toSVG(code, { height: 70, narrow: 2.4, fontSize: 16 });
+  } catch (e) {
+    svg = '<p>Cannot render a barcode for this code.</p>';
+  }
+  area.innerHTML = `<div class="card badge-print">
+    <div class="name">${escapeHtml(title)}</div>
+    ${svg}
+    <div class="no-print" style="margin-top:14px;">
+      <button class="btn btn-sm" onclick="window.print()">Print this label</button>
+    </div>
+  </div>`;
+  area.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 // ---- TECHS + BADGE PRINTING ----------------------------------------------
@@ -267,11 +409,21 @@ async function loadSettings() {
   renderLogoPreview(s.logo_data_url || '');
   document.getElementById('setProvider').value = s.barcode_provider || 'upcitemdb';
   document.getElementById('setApiKey').placeholder = s.has_barcode_api_key ? '•••••• (saved)' : 'Leave blank for free tier';
+  document.getElementById('setTheme').value = s.theme_default === 'light' ? 'light' : 'dark';
   renderChips('catList', categories, 'category');
   renderChips('unitList', units, 'unit');
   renderChips('locationList', locations, 'location');
   refreshAccountStatus();
+  loadAbout();
   document.getElementById('recoveryBox').style.display = 'none';
+}
+
+async function loadAbout() {
+  try {
+    const v = await api.get('/api/version');
+    document.getElementById('aboutName').textContent = v.name || 'StockTrax';
+    document.getElementById('aboutVersion').textContent = 'v' + v.version;
+  } catch (e) { /* ignore */ }
 }
 
 function renderLogoPreview(dataUrl) {
@@ -299,6 +451,7 @@ document.getElementById('setBrandSave').addEventListener('click', async () => {
   const body = {
     company_name: val('setCompany'),
     brand_tagline: val('setTagline'),
+    theme_default: document.getElementById('setTheme').value,
   };
   if (pendingLogo !== undefined) body.logo_data_url = pendingLogo;
   await api.put('/api/settings', body);

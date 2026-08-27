@@ -47,6 +47,7 @@
         <div class="field mono">
           <label for="rcvBarcode">Barcode</label>
           <input id="rcvBarcode" placeholder="Scan or type a barcode, then press Enter" autocomplete="off" />
+          <button class="btn btn-sm btn-ghost" id="rcvGenBarcode" style="margin-top:8px;">No barcode? Generate one</button>
         </div>
         <div id="rcvPreview"></div>
         <div id="rcvForm" style="display:none;">
@@ -64,8 +65,12 @@
             <div class="field mono"><label>Low-stock alert at</label><input id="rcvThreshold" type="number" min="0" value="0" /></div>
           </div>
           <div class="field"><label>Image URL (optional)</label><input id="rcvImage" placeholder="https://…" /></div>
-          <button class="btn btn-go" id="rcvSave">Add to stock</button>
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <button class="btn btn-go" id="rcvSave">Add to stock</button>
+            <button class="btn btn-ghost" id="rcvCancel">Cancel</button>
+          </div>
         </div>
+        <div id="rcvLabelArea"></div>
       </div>
     </section>
 
@@ -73,7 +78,14 @@
     <section id="items" class="tab">
       <h2 class="page-title">Items</h2>
       <p class="page-sub">Everything in the catalog and how much is on hand.</p>
+      <div style="display:flex; gap:14px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
+        <button class="btn btn-sm" id="itemsExport">Export CSV</button>
+        <label style="font-size:14px; color:var(--muted); display:flex; align-items:center; gap:6px; cursor:pointer;">
+          <input type="checkbox" id="showInactive" style="width:auto;" /> Show inactive items
+        </label>
+      </div>
       <div class="card"><div id="itemsTable"></div></div>
+      <div id="itemLabelArea"></div>
     </section>
 
     <!-- TECHS -->
@@ -147,6 +159,14 @@
             </div>
           </div>
         </div>
+        <div class="field">
+          <label>Default kiosk theme</label>
+          <select id="setTheme" style="max-width:220px;">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+          <p style="color:var(--muted); font-size:12px; margin:6px 0 0;">Starting theme for kiosk devices. Each device can still switch its own with the sun/moon button.</p>
+        </div>
         <button class="btn btn-primary" id="setBrandSave">Save branding</button>
       </div>
 
@@ -215,9 +235,19 @@
           <button class="btn btn-sm" id="addLocation" style="flex:0;">Add</button>
         </div>
       </div>
+      <div class="card">
+        <h3>About</h3>
+        <p style="margin:0; font-size:14px;"><strong id="aboutName">StockTrax</strong> <span class="mono" id="aboutVersion">—</span></p>
+        <p style="margin:8px 0 0; color:var(--muted); font-size:13px;">Complete Inventory Control, On Your Terms.</p>
+      </div>
     </section>
 
   </main>
+
+  <!-- generic modal -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal" id="modalBox"></div>
+  </div>
 
   <div class="toast" id="toast"></div>
 

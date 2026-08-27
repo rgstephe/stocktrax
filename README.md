@@ -28,6 +28,16 @@ No cloud, no accounts to buy, no build step. One Docker container.
   CSV for your records.
 - **Stock locations.** Define your own rooms/areas (warehouse, chemical room,
   tool room…) and assign one to each item, so techs can see where to grab it.
+- **Edit, adjust & retire items.** Edit any item's details, correct the on-hand
+  count with a reason (kept in the audit log), and deactivate discontinued
+  products without losing their history.
+- **In-app barcode labels.** Print tech badges and item labels as real scannable
+  Code 39 barcodes. Stock with no manufacturer barcode gets an auto-generated
+  in-house code (STK-#####), or type your own.
+- **Camera scanning on mobile.** On a phone (over HTTPS), a tech can sign in by
+  scanning their badge with the camera when no USB scanner is handy.
+- **Light or dark kiosk.** Each device picks light or dark; the admin sets the
+  default. **CSV inventory export** for backups.
 - **White-labeling.** Set your company name, tagline, and logo in Settings and
   StockTrax rebrands itself across the kiosk, landing page, and browser tab.
 - **Full audit log.** Who took what, when — receives, checkouts, and returns.
@@ -122,7 +132,7 @@ into the code:
 
 ### Roadmap ideas
 - Photo upload for products without a database image
-- Per-item history view
+- Camera-based take/return on mobile (the scanner is already reusable)
 - Multiple admin accounts with roles/permissions
 - Report breakdowns by location
 

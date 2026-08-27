@@ -134,6 +134,21 @@ function resetIdle() {
   if (currentUser) idleTimer = setTimeout(signOut, IDLE_MS);
 }
 
+// ---- theme + camera login ------------------------------------------------
+if (window.Theme) Theme.init();
+
+const camBtn = document.getElementById('camLoginBtn');
+if (camBtn) {
+  // Hide the camera button entirely if this browser can't use it at all,
+  // so the stock-room USB kiosk isn't cluttered.
+  if (window.Scanner && !Scanner.detectorSupported() && Scanner.secureContextOk()) {
+    // supported check is best-effort; keep the button (it explains itself on tap)
+  }
+  camBtn.addEventListener('click', () => {
+    Scanner.scan((code) => { handleScan(code); }, { title: 'Scan your badge barcode' });
+  });
+}
+
 // ---- toast + escaping ------------------------------------------------------
 let toastTimer;
 function toast(msg, isErr) {
