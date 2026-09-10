@@ -103,8 +103,11 @@
         <button class="btn btn-primary" id="techAdd">Add tech &amp; make badge</button>
       </div>
       <div class="card">
-        <h3>Team</h3>
-        <div id="techsTable"></div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <h3 style="margin:0;">Team</h3>
+          <button class="btn btn-sm" id="printAllBadges">Print all badges</button>
+        </div>
+        <div id="techsTable" style="margin-top:14px;"></div>
       </div>
       <div id="badgeArea"></div>
     </section>
@@ -243,6 +246,9 @@
     </section>
 
   </main>
+
+  <!-- print-only surface: only this prints when printing a label/sheet -->
+  <div id="printRoot"></div>
 
   <!-- generic modal -->
   <div class="modal-backdrop" id="modalBackdrop">

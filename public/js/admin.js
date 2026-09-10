@@ -207,6 +207,7 @@ function previewCard(img, name, brand, src) {
 let itemsById = {};
 
 async function loadItems() {
+  await ensureTaxonomy(); // so the Edit modal's category/unit/location dropdowns populate
   const includeInactive = document.getElementById('showInactive') && document.getElementById('showInactive').checked;
   const items = await api.get('/api/items' + (includeInactive ? '?include_inactive=1' : ''));
   itemsById = {};
@@ -317,6 +318,30 @@ document.getElementById('modalBackdrop').addEventListener('click', (e) => {
 });
 
 // ---- printable barcode label (reused for items and badges) ----------------
+// Put markup into the off-screen print surface and trigger the print dialog.
+// Only #printRoot is visible while printing (see @media print in the CSS).
+function printNode(html) {
+  document.getElementById('printRoot').innerHTML = html;
+  window.print();
+}
+
+// Build a single label's print markup (name + barcode, sized to ~3in).
+function labelMarkup(code, title) {
+  let svg;
+  try {
+    svg = Code39.toSVG(code, { height: 60, narrow: 2.2, fontSize: 14 });
+  } catch (e) {
+    svg = '<p>Cannot render a barcode for this code.</p>';
+  }
+  return `<div class="print-label"><div class="plabel-name">${escapeHtml(title)}</div>${svg}</div>`;
+}
+
+function doPrintLabel(code, title) {
+  printNode(labelMarkup(code, title));
+}
+
+// Show an on-screen preview card with a Print button (used for item labels
+// and tech badges). Printing prints only the label, not the whole page.
 function printLabel(code, title, areaId) {
   const area = document.getElementById(areaId);
   let svg;
@@ -329,11 +354,17 @@ function printLabel(code, title, areaId) {
     <div class="name">${escapeHtml(title)}</div>
     ${svg}
     <div class="no-print" style="margin-top:14px;">
-      <button class="btn btn-sm" onclick="window.print()">Print this label</button>
+      <button class="btn btn-sm print-label-btn" data-code="${escapeAttr(code)}" data-title="${escapeAttr(title)}">Print this label</button>
     </div>
   </div>`;
   area.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
+
+// Delegated handler so any Print button prints its own label in isolation.
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.print-label-btn');
+  if (b) doPrintLabel(b.dataset.code, b.dataset.title);
+});
 
 // ---- TECHS + BADGE PRINTING ----------------------------------------------
 async function loadTechs() {
@@ -362,22 +393,28 @@ document.getElementById('techAdd').addEventListener('click', async () => {
 });
 
 function printBadge(code, name) {
-  const area = document.getElementById('badgeArea');
-  let svg;
-  try {
-    svg = Code39.toSVG(code, { height: 70, narrow: 2.4, fontSize: 16 });
-  } catch (e) {
-    svg = '<p>Cannot render badge for this code.</p>';
-  }
-  area.innerHTML = `<div class="card badge-print">
-    <div class="name">${escapeHtml(name)}</div>
-    ${svg}
-    <div class="no-print" style="margin-top:14px;">
-      <button class="btn btn-sm" onclick="window.print()">Print this badge</button>
-    </div>
-  </div>`;
-  area.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  printLabel(code, name, 'badgeArea');
 }
+
+// Print every tech's badge, 10 per 8.5x11 sheet (2 columns x 5 rows).
+async function printAllBadges() {
+  let users;
+  try { users = await api.get('/api/users'); } catch (e) { return toast(e.message, true); }
+  const withBadges = users.filter((u) => u.badge_barcode);
+  if (!withBadges.length) return toast('No badges to print yet', true);
+  let pages = '';
+  for (let i = 0; i < withBadges.length; i += 10) {
+    const cells = withBadges.slice(i, i + 10).map((u) => {
+      let svg;
+      try { svg = Code39.toSVG(u.badge_barcode, { height: 60, narrow: 2.2, fontSize: 14 }); }
+      catch (e) { svg = ''; }
+      return `<div class="badge-cell"><div class="bname">${escapeHtml(u.name)}</div>${svg}</div>`;
+    }).join('');
+    pages += `<div class="badge-page">${cells}</div>`;
+  }
+  printNode(pages);
+}
+document.getElementById('printAllBadges').addEventListener('click', printAllBadges);
 
 // ---- LOG ------------------------------------------------------------------
 async function loadLog() {

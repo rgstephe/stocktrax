@@ -278,13 +278,13 @@ tr.is-low td { background: var(--signal-bg); }
 .preview img { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; background: #fff; }
 .preview .src { font-size: 12px; color: var(--muted); }
 
-/* badge print card */
+/* badge print card (on-screen preview) */
 .badge-print {
   border: 1px dashed var(--line); border-radius: var(--radius); padding: 18px; text-align: center;
   background: #fff;
 }
 .badge-print .name { font-weight: 800; font-size: 18px; margin-bottom: 4px; }
-.badge-print svg { max-width: 100%; height: auto; }
+.badge-print svg { width: 3in; max-width: 100%; height: auto; }
 
 .empty { text-align: center; color: var(--muted); padding: 40px 20px; }
 
@@ -303,7 +303,32 @@ tr.is-low td { background: var(--signal-bg); }
 .modal .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
 .item-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
-@media print {
-  .admin-top, .page-sub, .no-print { display: none !important; }
-  body { background: #fff; }
+/* ---- printing ----------------------------------------------------------
+   #printRoot holds ONLY what should print (a single label, or a badge sheet).
+   It sits off-screen normally; at print time everything else is removed. */
+#printRoot { position: fixed; left: -100000px; top: 0; }
+.print-label { text-align: center; font-family: var(--sans); padding: 6px 0; }
+.print-label .plabel-name { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+.print-label svg { width: 3in; max-width: 3in; height: auto; }
+
+.badge-page { display: grid; grid-template-columns: 1fr 1fr; }
+.badge-cell {
+  text-align: center; padding: 14px 10px; border: 1px dashed #bbb;
+  break-inside: avoid; page-break-inside: avoid;
 }
+.badge-cell .bname { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.badge-cell svg { width: 3in; max-width: 3in; height: auto; }
+
+@media print {
+  /* isolate the print surface: remove everything except #printRoot from layout
+     (display:none, so no stray blank pages) */
+  body > *:not(#printRoot) { display: none !important; }
+  #printRoot { position: static !important; left: auto !important; }
+  .no-print { display: none !important; }
+  .badge-page { break-after: page; }
+  .badge-page:last-child { break-after: auto; }
+  body { background: #fff; }
+  @page { margin: 0.4in; }
+}
+
+

@@ -2,6 +2,17 @@
 
 All notable changes to StockTrax, newest first.
 
+## 0.5.1
+- **Fix:** printing a barcode now prints only the label (item name or tech name +
+  barcode), not the whole page.
+- **Fix:** external product images display again — the Content-Security-Policy was
+  blocking off-site images (from barcode lookups and pasted links); `img-src` now
+  allows external images (scripts and everything else stay locked down).
+- **Fix:** the Edit item dialog's category/unit/location dropdowns now populate.
+- **Print sizing:** barcodes print at 3 inches wide to scale correctly.
+- **New:** "Print all badges" prints every tech's badge, 10 per 8.5×11 sheet
+  (2 columns × 5 rows), each with the tech's name.
+
 ## 0.5.0
 - **About section** showing the app version (read from `package.json`).
 - **Mobile camera badge login** — reusable camera scanner (native `BarcodeDetector`);
