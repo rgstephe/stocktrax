@@ -96,25 +96,111 @@ function getSetting(key, fallback = '') {
   return row ? row.value : fallback;
 }
 
-// Directions: how each transaction type changes on-hand quantity.
-const DIRECTION = { receive: +1, return: +1, checkout: -1, adjustment: +1 };
+// ---- offices --------------------------------------------------------------
+// There is always a main office. When multi-office mode is off, every request
+// is quietly pinned to it, so single-office installs behave exactly as before.
+function mainOfficeId() {
+  const r = db.prepare('SELECT id FROM offices WHERE is_main = 1 ORDER BY id LIMIT 1').get();
+  return r ? r.id : null;
+}
+function multiOffice() {
+  return getSetting('multi_office_enabled', '0') === '1';
+}
+function officeExists(id) {
+  return !!db.prepare('SELECT 1 FROM offices WHERE id = ?').get(id);
+}
+// Which office does this request act on?
+//  - single-office mode: always the main office
+//  - multi-office: the office_id sent (query or body); 'all'/missing -> null
+//    (meaning "all offices") unless `required`, in which case main is used.
+function officeFor(req, required) {
+  if (!multiOffice()) return mainOfficeId();
+  const raw = (req.body && req.body.office_id != null ? req.body.office_id : req.query.office_id);
+  const id = Number(raw);
+  if (raw != null && raw !== '' && raw !== 'all' && Number.isInteger(id) && officeExists(id)) return id;
+  return required ? mainOfficeId() : null;
+}
 
-const applyMovement = db.transaction((itemId, userId, type, quantity, note) => {
+// Make sure an item has a stock row at an office (new offices start at 0,
+// using the item's default low-stock level).
+function ensureStock(itemId, officeId) {
+  db.prepare(
+    `INSERT OR IGNORE INTO item_stock (item_id, office_id, quantity, low_stock_threshold)
+     SELECT id, ?, 0, low_stock_threshold FROM items WHERE id = ?`
+  ).run(officeId, itemId);
+}
+function syncItemTotal(itemId) {
+  db.prepare(
+    `UPDATE items SET quantity = (SELECT COALESCE(SUM(quantity),0) FROM item_stock WHERE item_id = ?),
+     updated_at = datetime('now') WHERE id = ?`
+  ).run(itemId, itemId);
+}
+
+// Directions: how each transaction type changes on-hand quantity.
+const DIRECTION = { receive: +1, return: +1, checkout: -1, adjustment: +1, transfer_out: -1, transfer_in: +1 };
+
+const applyMovement = db.transaction((itemId, userId, type, quantity, note, officeId) => {
   const item = db.prepare('SELECT * FROM items WHERE id = ?').get(itemId);
   if (!item) throw new Error('Item not found');
-  const delta = DIRECTION[type] * quantity;
-  const newQty = item.quantity + delta;
+  const office = officeId || mainOfficeId();
+  ensureStock(itemId, office);
+  const stock = db.prepare('SELECT quantity FROM item_stock WHERE item_id = ? AND office_id = ?').get(itemId, office);
+  const newQty = stock.quantity + DIRECTION[type] * quantity;
   if (newQty < 0) throw new Error('Not enough stock on hand');
-  db.prepare("UPDATE items SET quantity = ?, updated_at = datetime('now') WHERE id = ?").run(newQty, itemId);
+  db.prepare('UPDATE item_stock SET quantity = ? WHERE item_id = ? AND office_id = ?').run(newQty, itemId, office);
+  syncItemTotal(itemId);
   const info = db
-    .prepare('INSERT INTO transactions (item_id, user_id, type, quantity, note) VALUES (?, ?, ?, ?, ?)')
-    .run(itemId, userId, type, quantity, note || null);
-  return { transaction_id: info.lastInsertRowid, quantity: newQty };
+    .prepare('INSERT INTO transactions (item_id, user_id, office_id, type, quantity, note) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(itemId, userId, office, type, quantity, note || null);
+  return { transaction_id: Number(info.lastInsertRowid), quantity: newQty, office_id: office };
 });
 
 function itemWithLabels(row) {
   if (!row) return row;
   return { ...row, low: row.quantity <= row.low_stock_threshold && row.low_stock_threshold > 0 };
+}
+
+// Item rows as seen from one office (quantity/threshold/room at that office),
+// or from "all offices" (total quantity; low if ANY office is low).
+function itemSelect(officeId) {
+  if (officeId) {
+    return {
+      sql: `SELECT i.*, COALESCE(s.quantity, 0) AS quantity,
+                   COALESCE(s.low_stock_threshold, i.low_stock_threshold) AS low_stock_threshold,
+                   s.location_id AS location_id, i.quantity AS total_quantity,
+                   c.name AS category, u.name AS unit, l.name AS location
+            FROM items i
+            LEFT JOIN item_stock s ON s.item_id = i.id AND s.office_id = @office
+            LEFT JOIN categories c ON c.id = i.category_id
+            LEFT JOIN units u ON u.id = i.unit_id
+            LEFT JOIN locations l ON l.id = s.location_id`,
+      params: { office: officeId },
+    };
+  }
+  return {
+    sql: `SELECT i.*, c.name AS category, u.name AS unit, NULL AS location,
+                 i.quantity AS total_quantity
+          FROM items i
+          LEFT JOIN categories c ON c.id = i.category_id
+          LEFT JOIN units u ON u.id = i.unit_id`,
+    params: {},
+  };
+}
+// Per-office breakdown for "all offices" views.
+function stockBreakdown() {
+  const rows = db.prepare(
+    `SELECT s.item_id, s.office_id, o.name AS office, s.quantity, s.low_stock_threshold
+     FROM item_stock s JOIN offices o ON o.id = s.office_id
+     WHERE o.active = 1 ORDER BY o.is_main DESC, o.sort_order, o.name`
+  ).all();
+  const by = {};
+  for (const r of rows) {
+    (by[r.item_id] = by[r.item_id] || []).push({
+      office_id: r.office_id, office: r.office, quantity: r.quantity,
+      low: r.low_stock_threshold > 0 && r.quantity <= r.low_stock_threshold,
+    });
+  }
+  return by;
 }
 
 // Turn low-level SQLite constraint errors into friendly messages (and avoid
@@ -134,7 +220,9 @@ function cleanDbError(err) {
 // Only these settings keys may be written, and some are format-checked.
 const ALLOWED_SETTINGS = new Set([
   'company_name', 'brand_tagline', 'logo_data_url', 'barcode_provider', 'barcode_api_key', 'theme_default',
+  'multi_office_enabled', 'label_size', 'label_show_name',
 ]);
+const LABEL_SIZES = ['sheet', '2.25x1.25', '2x1', '3x1', '4x2', '4x6'];
 const BARCODE_PROVIDERS = ['upcitemdb', 'openfoodfacts'];
 
 // Accept only real raster-image data URLs. Rejecting SVG removes the stored-XSS
@@ -225,7 +313,15 @@ app.get('/api/branding', (req, res) => {
     tagline: getSetting('brand_tagline', 'Complete Inventory Control, On Your Terms'),
     logo_data_url: getSetting('logo_data_url', ''),
     theme_default: getSetting('theme_default', 'dark'),
+    multi_office: multiOffice(),
   });
+});
+
+// Kiosk: which office is this kiosk for? Public, name only.
+app.get('/api/kiosk/office/:id', (req, res) => {
+  const row = db.prepare('SELECT id, name FROM offices WHERE id = ? AND active = 1').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Office not found' });
+  res.json(row);
 });
 
 app.get('/api/version', (req, res) => {
@@ -234,21 +330,21 @@ app.get('/api/version', (req, res) => {
 
 app.get('/api/users/badge/:barcode', (req, res) => {
   const row = db
-    .prepare('SELECT id, name, role, badge_barcode FROM users WHERE badge_barcode = ? AND active = 1')
+    .prepare(
+      `SELECT u.id, u.name, u.role, u.badge_barcode, u.office_id, o.name AS office
+       FROM users u LEFT JOIN offices o ON o.id = u.office_id
+       WHERE u.badge_barcode = ? AND u.active = 1`
+    )
     .get(req.params.barcode.trim());
   if (!row) return res.status(404).json({ error: 'Badge not recognized' });
   res.json(row);
 });
 
 app.get('/api/items/barcode/:barcode', (req, res) => {
+  const q = itemSelect(officeFor(req, true));
   const row = db
-    .prepare(
-      `SELECT i.*, l.name AS location
-       FROM items i
-       LEFT JOIN locations l ON l.id = i.location_id
-       WHERE i.barcode = ?`
-    )
-    .get(req.params.barcode.trim());
+    .prepare(`${q.sql} WHERE i.barcode = @barcode`)
+    .get({ ...q.params, barcode: req.params.barcode.trim() });
   if (!row) return res.status(404).json({ error: 'Not found' });
   res.json(itemWithLabels(row));
 });
@@ -265,11 +361,14 @@ app.post('/api/transactions', optionalAuth, (req, res) => {
   if (!DIRECTION.hasOwnProperty(type)) {
     return res.status(400).json({ error: `Unknown transaction type: ${type}` });
   }
+  if (type === 'transfer_in' || type === 'transfer_out') {
+    return res.status(400).json({ error: 'Use the transfer action to move stock between offices' });
+  }
   if ((type === 'receive' || type === 'adjustment') && !req.user) {
     return res.status(401).json({ error: 'Admin login required for this action' });
   }
   try {
-    res.status(201).json(applyMovement(item_id, user_id || null, type, quantity, b.note));
+    res.status(201).json(applyMovement(item_id, user_id || null, type, quantity, b.note, officeFor(req, true)));
   } catch (err) {
     res.status(400).json({ error: cleanDbError(err) });
   }
@@ -367,7 +466,8 @@ app.post('/api/account/recovery-code', (req, res) => {
 
 app.get('/api/lookup/:barcode', async (req, res) => {
   const barcode = req.params.barcode.trim();
-  const existing = db.prepare('SELECT * FROM items WHERE barcode = ?').get(barcode);
+  const q = itemSelect(officeFor(req, true));
+  const existing = db.prepare(`${q.sql} WHERE i.barcode = @barcode`).get({ ...q.params, barcode });
   if (existing) return res.json({ found: 'local', item: itemWithLabels(existing) });
   try {
     const product = await lookup(barcode, {
@@ -385,18 +485,18 @@ app.get('/api/lookup/:barcode', async (req, res) => {
 
 app.get('/api/items', (req, res) => {
   const includeInactive = req.query.include_inactive === '1';
+  const office = officeFor(req, false);
+  const q = itemSelect(office);
   const rows = db
-    .prepare(
-      `SELECT i.*, c.name AS category, u.name AS unit, l.name AS location
-       FROM items i
-       LEFT JOIN categories c ON c.id = i.category_id
-       LEFT JOIN units u ON u.id = i.unit_id
-       LEFT JOIN locations l ON l.id = i.location_id
-       ${includeInactive ? '' : 'WHERE i.active = 1'}
-       ORDER BY i.name COLLATE NOCASE`
-    )
-    .all();
-  res.json(rows.map(itemWithLabels));
+    .prepare(`${q.sql} ${includeInactive ? '' : 'WHERE i.active = 1'} ORDER BY i.name COLLATE NOCASE`)
+    .all(q.params);
+  if (office) return res.json(rows.map(itemWithLabels));
+  // All offices: attach the per-office breakdown; low if any office is low.
+  const by = stockBreakdown();
+  res.json(rows.map((r) => {
+    const stock = by[r.id] || [];
+    return { ...r, stock, low: stock.some((s) => s.low) };
+  }));
 });
 
 // Suggest the next auto-generated in-house barcode (STK-#####) for stock that
@@ -435,23 +535,53 @@ app.post('/api/items', (req, res) => {
         low_stock_threshold: Number(b.low_stock_threshold) || 0,
         notes: b.notes || null,
       });
-    const row = db.prepare('SELECT * FROM items WHERE id = ?').get(info.lastInsertRowid);
+    const itemId = Number(info.lastInsertRowid);
+    const office = officeFor(req, true);
+    db.prepare(
+      'INSERT OR REPLACE INTO item_stock (item_id, office_id, quantity, low_stock_threshold, location_id) VALUES (?, ?, ?, ?, ?)'
+    ).run(itemId, office, Number(b.quantity) || 0, Number(b.low_stock_threshold) || 0, b.location_id || null);
+    const row = db.prepare('SELECT * FROM items WHERE id = ?').get(itemId);
     res.status(201).json(itemWithLabels(row));
   } catch (err) {
     res.status(400).json({ error: cleanDbError(err) });
   }
 });
 
+// Low-stock level and stock room are per office. In single-office mode (or
+// when the admin is viewing one office) they're written to that office's stock
+// row; the item-level copy is the default used when a new office is added.
+const updateItem = db.transaction((id, b, office) => {
+  const fields = ['barcode', 'name', 'brand', 'category_id', 'unit_id', 'image_url', 'notes', 'active'];
+  const perOffice = ['low_stock_threshold', 'location_id'];
+  const sets = [];
+  const params = { id };
+  for (const f of fields) if (f in b) { sets.push(`${f} = @${f}`); params[f] = b[f]; }
+  if (!office || !multiOffice()) {
+    // item-level default (and legacy column) — only from single-office / all view
+    for (const f of perOffice) if (f in b) { sets.push(`${f} = @${f}`); params[f] = b[f]; }
+  }
+  if (sets.length) {
+    sets.push("updated_at = datetime('now')");
+    db.prepare(`UPDATE items SET ${sets.join(', ')} WHERE id = @id`).run(params);
+  }
+  if (office && perOffice.some((f) => f in b)) {
+    ensureStock(id, office);
+    const s2 = []; const p2 = { id, office };
+    for (const f of perOffice) if (f in b) { s2.push(`${f} = @${f}`); p2[f] = b[f]; }
+    db.prepare(`UPDATE item_stock SET ${s2.join(', ')} WHERE item_id = @id AND office_id = @office`).run(p2);
+  }
+  return sets.length > 0 || perOffice.some((f) => f in b);
+});
+
 app.patch('/api/items/:id', (req, res) => {
   const b = req.body || {};
-  const fields = ['barcode', 'name', 'brand', 'category_id', 'unit_id', 'location_id', 'image_url', 'low_stock_threshold', 'notes', 'active'];
-  const sets = [];
-  const params = { id: req.params.id };
-  for (const f of fields) if (f in b) { sets.push(`${f} = @${f}`); params[f] = b[f]; }
-  if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
-  sets.push("updated_at = datetime('now')");
+  if (!db.prepare('SELECT 1 FROM items WHERE id = ?').get(req.params.id)) {
+    return res.status(404).json({ error: 'Item not found' });
+  }
+  // per-office fields go to the chosen office (main in single-office mode)
+  const office = officeFor(req, false) || (multiOffice() ? null : mainOfficeId());
   try {
-    db.prepare(`UPDATE items SET ${sets.join(', ')} WHERE id = @id`).run(params);
+    if (!updateItem(Number(req.params.id), b, office)) return res.status(400).json({ error: 'Nothing to update' });
     const row = db.prepare('SELECT * FROM items WHERE id = ?').get(req.params.id);
     res.json(itemWithLabels(row));
   } catch (err) {
@@ -461,14 +591,18 @@ app.patch('/api/items/:id', (req, res) => {
 
 // Manual stock adjustment: set the on-hand count to a corrected value and log
 // why (physical recount, breakage, etc.). Recorded as an 'adjustment' movement.
-const applyAdjustment = db.transaction((itemId, userId, newCount, note) => {
+const applyAdjustment = db.transaction((itemId, userId, newCount, note, officeId) => {
   const item = db.prepare('SELECT * FROM items WHERE id = ?').get(itemId);
   if (!item) throw new Error('Item not found');
-  db.prepare("UPDATE items SET quantity = ?, updated_at = datetime('now') WHERE id = ?").run(newCount, itemId);
-  const fullNote = `Set to ${newCount} (was ${item.quantity}).` + (note ? ' ' + note : '');
-  db.prepare('INSERT INTO transactions (item_id, user_id, type, quantity, note) VALUES (?, ?, ?, ?, ?)')
-    .run(itemId, userId, 'adjustment', newCount, fullNote);
-  return { quantity: newCount, was: item.quantity };
+  const office = officeId || mainOfficeId();
+  ensureStock(itemId, office);
+  const was = db.prepare('SELECT quantity FROM item_stock WHERE item_id = ? AND office_id = ?').get(itemId, office).quantity;
+  db.prepare('UPDATE item_stock SET quantity = ? WHERE item_id = ? AND office_id = ?').run(newCount, itemId, office);
+  syncItemTotal(itemId);
+  const fullNote = `Set to ${newCount} (was ${was}).` + (note ? ' ' + note : '');
+  db.prepare('INSERT INTO transactions (item_id, user_id, office_id, type, quantity, note) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(itemId, userId, office, 'adjustment', newCount, fullNote);
+  return { quantity: newCount, was };
 });
 app.post('/api/items/:id/adjust', (req, res) => {
   const b = req.body || {};
@@ -477,7 +611,47 @@ app.post('/api/items/:id/adjust', (req, res) => {
     return res.status(400).json({ error: 'Enter a whole number of 0 or more.' });
   }
   try {
-    res.json(applyAdjustment(req.params.id, req.user.id, count, (b.note || '').trim()));
+    res.json(applyAdjustment(Number(req.params.id), req.user.id, count, (b.note || '').trim(), officeFor(req, true)));
+  } catch (err) {
+    res.status(400).json({ error: cleanDbError(err) });
+  }
+});
+
+// Per-office stock rows for one item (every office, including zero rows).
+app.get('/api/items/:id/stock', (req, res) => {
+  res.json(db.prepare(
+    `SELECT o.id AS office_id, o.name AS office, o.active,
+            COALESCE(s.quantity, 0) AS quantity,
+            COALESCE(s.low_stock_threshold, i.low_stock_threshold) AS low_stock_threshold,
+            s.location_id
+     FROM offices o
+     JOIN items i ON i.id = @id
+     LEFT JOIN item_stock s ON s.office_id = o.id AND s.item_id = i.id
+     ORDER BY o.is_main DESC, o.sort_order, o.name`
+  ).all({ id: Number(req.params.id) }));
+});
+
+// Move stock from one office to another. Logged as a transfer_out at the
+// sending office and a transfer_in at the receiving office.
+const applyTransfer = db.transaction((itemId, userId, from, to, qty, note) => {
+  const n = (note ? note + ' ' : '');
+  const fromName = db.prepare('SELECT name FROM offices WHERE id = ?').get(from).name;
+  const toName = db.prepare('SELECT name FROM offices WHERE id = ?').get(to).name;
+  const out = applyMovement(itemId, userId, 'transfer_out', qty, `${n}To ${toName}`.trim(), from);
+  const inn = applyMovement(itemId, userId, 'transfer_in', qty, `${n}From ${fromName}`.trim(), to);
+  return { from_quantity: out.quantity, to_quantity: inn.quantity };
+});
+app.post('/api/items/:id/transfer', (req, res) => {
+  const b = req.body || {};
+  const from = Number(b.from_office_id);
+  const to = Number(b.to_office_id);
+  const qty = Number(b.quantity);
+  if (!multiOffice()) return res.status(400).json({ error: 'Turn on multi-office setup to transfer stock' });
+  if (!officeExists(from) || !officeExists(to)) return res.status(400).json({ error: 'Pick both offices' });
+  if (from === to) return res.status(400).json({ error: 'Pick two different offices' });
+  if (!Number.isInteger(qty) || qty <= 0) return res.status(400).json({ error: 'Enter a whole number of 1 or more' });
+  try {
+    res.json(applyTransfer(Number(req.params.id), req.user.id, from, to, qty, (b.note || '').trim()));
   } catch (err) {
     res.status(400).json({ error: cleanDbError(err) });
   }
@@ -485,25 +659,31 @@ app.post('/api/items/:id/adjust', (req, res) => {
 
 // Full inventory export as CSV (includes inactive items, flagged).
 app.get('/api/items.csv', (req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT i.name, i.brand, c.name AS category, l.name AS location, u.name AS unit,
-              i.quantity, i.low_stock_threshold, i.barcode, i.active
-       FROM items i
-       LEFT JOIN categories c ON c.id = i.category_id
-       LEFT JOIN locations l ON l.id = i.location_id
-       LEFT JOIN units u ON u.id = i.unit_id
-       ORDER BY i.name COLLATE NOCASE`
-    )
-    .all();
+  const office = officeFor(req, false);
+  const q = itemSelect(office);
+  const rows = db.prepare(`${q.sql} ORDER BY i.name COLLATE NOCASE`).all(q.params);
   const esc = (v) => {
     const s = v == null ? '' : String(v);
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
-  const header = ['Name', 'Brand', 'Category', 'Location', 'Unit', 'Quantity', 'Low stock at', 'Barcode', 'Active'];
-  const lines = [header.join(',')];
-  for (const r of rows) {
-    lines.push([r.name, r.brand, r.category, r.location, r.unit, r.quantity, r.low_stock_threshold, r.barcode, r.active ? 'Yes' : 'No'].map(esc).join(','));
+  let header, lines;
+  if (office) {
+    header = ['Name', 'Brand', 'Category', 'Location', 'Unit', 'Quantity', 'Low stock at', 'Barcode', 'Active'];
+    lines = [header.join(',')];
+    for (const r of rows) {
+      lines.push([r.name, r.brand, r.category, r.location, r.unit, r.quantity, r.low_stock_threshold, r.barcode, r.active ? 'Yes' : 'No'].map(esc).join(','));
+    }
+  } else {
+    // All offices: total plus one column per office.
+    const offices = db.prepare('SELECT id, name FROM offices WHERE active = 1 ORDER BY is_main DESC, sort_order, name').all();
+    const by = stockBreakdown();
+    header = ['Name', 'Brand', 'Category', 'Unit', 'Total quantity'].concat(offices.map((o) => o.name), ['Barcode', 'Active']);
+    lines = [header.map(esc).join(',')];
+    for (const r of rows) {
+      const st = by[r.id] || [];
+      const per = offices.map((o) => { const x = st.find((s) => s.office_id === o.id); return x ? x.quantity : 0; });
+      lines.push([r.name, r.brand, r.category, r.unit, r.quantity].concat(per, [r.barcode, r.active ? 'Yes' : 'No']).map(esc).join(','));
+    }
   }
   const stamp = new Date().toISOString().slice(0, 10);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -511,25 +691,40 @@ app.get('/api/items.csv', (req, res) => {
   res.send(lines.join('\r\n'));
 });
 
+// Activity log with optional filters: from/to (UTC ISO instants, like the
+// reports), type, user_id, office_id.
 app.get('/api/transactions', (req, res) => {
-  const limit = Math.min(Number(req.query.limit) || 100, 1000);
+  const limit = Math.min(Number(req.query.limit) || 100, 5000);
+  const where = [];
+  const p = { limit };
+  if (req.query.from) { where.push('t.created_at >= @from'); p.from = toStamp(req.query.from, '1970-01-01 00:00:00'); }
+  if (req.query.to) { where.push('t.created_at < @to'); p.to = toStamp(req.query.to, '9999-12-31 00:00:00'); }
+  if (req.query.type && DIRECTION.hasOwnProperty(req.query.type)) { where.push('t.type = @type'); p.type = req.query.type; }
+  if (req.query.type === 'transfer') where.push("t.type IN ('transfer_in','transfer_out')");
+  if (req.query.user_id) { where.push('t.user_id = @user'); p.user = Number(req.query.user_id); }
+  const office = officeFor(req, false);
+  if (office && multiOffice()) { where.push('t.office_id = @office'); p.office = office; }
   const rows = db
     .prepare(
-      `SELECT t.*, i.name AS item_name, i.barcode AS item_barcode, u.name AS user_name
+      `SELECT t.*, i.name AS item_name, i.barcode AS item_barcode, u.name AS user_name, o.name AS office_name
        FROM transactions t
        LEFT JOIN items i ON i.id = t.item_id
        LEFT JOIN users u ON u.id = t.user_id
+       LEFT JOIN offices o ON o.id = t.office_id
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
        ORDER BY t.created_at DESC, t.id DESC
-       LIMIT ?`
+       LIMIT @limit`
     )
-    .all(limit);
+    .all(p);
   res.json(rows);
 });
 
 // --- users / techs ---------------------------------------------------------
 
+const USER_COLS = `SELECT u.id, u.name, u.role, u.badge_barcode, u.active, u.created_at, u.office_id, o.name AS office
+  FROM users u LEFT JOIN offices o ON o.id = u.office_id`;
 app.get('/api/users', (req, res) => {
-  res.json(db.prepare('SELECT id, name, role, badge_barcode, active, created_at FROM users ORDER BY name COLLATE NOCASE').all());
+  res.json(db.prepare(`${USER_COLS} ORDER BY u.name COLLATE NOCASE`).all());
 });
 
 function randomBadge() {
@@ -544,10 +739,11 @@ app.post('/api/users', (req, res) => {
   if (!b.name) return res.status(400).json({ error: 'Name is required' });
   const badge = (b.badge_barcode || randomBadge()).toUpperCase();
   try {
+    const office = b.office_id && officeExists(Number(b.office_id)) ? Number(b.office_id) : mainOfficeId();
     const info = db
-      .prepare('INSERT INTO users (name, role, badge_barcode) VALUES (?, ?, ?)')
-      .run(b.name, b.role === 'admin' ? 'admin' : 'tech', badge);
-    res.status(201).json(db.prepare('SELECT id, name, role, badge_barcode, active FROM users WHERE id = ?').get(info.lastInsertRowid));
+      .prepare('INSERT INTO users (name, role, badge_barcode, office_id) VALUES (?, ?, ?, ?)')
+      .run(b.name, b.role === 'admin' ? 'admin' : 'tech', badge, office);
+    res.status(201).json(db.prepare(`${USER_COLS} WHERE u.id = ?`).get(info.lastInsertRowid));
   } catch (err) {
     res.status(400).json({ error: cleanDbError(err) });
   }
@@ -555,14 +751,16 @@ app.post('/api/users', (req, res) => {
 
 app.patch('/api/users/:id', (req, res) => {
   const b = req.body || {};
-  const fields = ['name', 'role', 'badge_barcode', 'active'];
+  const fields = ['name', 'role', 'badge_barcode', 'active', 'office_id'];
+  if ('office_id' in b && !officeExists(Number(b.office_id))) return res.status(400).json({ error: 'Unknown office' });
+  if ('role' in b && !['admin', 'tech'].includes(b.role)) return res.status(400).json({ error: 'Unknown role' });
   const sets = [];
   const params = { id: req.params.id };
   for (const f of fields) if (f in b) { sets.push(`${f} = @${f}`); params[f] = b[f]; }
   if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
   try {
     db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = @id`).run(params);
-    res.json(db.prepare('SELECT id, name, role, badge_barcode, active FROM users WHERE id = ?').get(req.params.id));
+    res.json(db.prepare(`${USER_COLS} WHERE u.id = ?`).get(req.params.id));
   } catch (err) {
     res.status(400).json({ error: cleanDbError(err) });
   }
@@ -594,42 +792,127 @@ app.post('/api/units', (req, res) => {
   } catch (err) { res.status(400).json({ error: cleanDbError(err) }); }
 });
 
+// Stock rooms. Each belongs to an office; the list includes office_id so the
+// admin UI can filter per office.
 app.get('/api/locations', (req, res) => {
-  res.json(db.prepare('SELECT * FROM locations ORDER BY sort_order, name').all());
+  res.json(db.prepare(
+    `SELECT l.*, o.name AS office FROM locations l LEFT JOIN offices o ON o.id = l.office_id
+     ORDER BY o.is_main DESC, o.name, l.sort_order, l.name`
+  ).all());
 });
 app.post('/api/locations', (req, res) => {
   const { name } = req.body || {};
   if (!name) return res.status(400).json({ error: 'Name is required' });
+  const office = officeFor(req, true);
   try {
-    const info = db.prepare('INSERT INTO locations (name) VALUES (?)').run(name);
+    const info = db.prepare('INSERT INTO locations (name, office_id) VALUES (?, ?)').run(name, office);
     res.status(201).json(db.prepare('SELECT * FROM locations WHERE id = ?').get(info.lastInsertRowid));
+  } catch (err) { res.status(400).json({ error: cleanDbError(err) }); }
+});
+
+// --- offices ---------------------------------------------------------------
+
+const OFFICE_FIELDS = ['name', 'address_line1', 'address_line2', 'city', 'state', 'zip', 'phone', 'email', 'manager', 'license_no', 'notes', 'active'];
+function cleanOffice(b) {
+  const out = {};
+  for (const f of OFFICE_FIELDS) {
+    if (!(f in b)) continue;
+    if (f === 'active') { out.active = b.active ? 1 : 0; continue; }
+    const v = b[f] == null ? '' : String(b[f]).trim();
+    if (v.length > 300) throw new Error('One of the office fields is too long');
+    out[f] = v || null;
+  }
+  if ('email' in out && out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) {
+    throw new Error("That email address doesn't look right");
+  }
+  return out;
+}
+app.get('/api/offices', (req, res) => {
+  const rows = db.prepare(
+    `SELECT o.*,
+       (SELECT COUNT(*) FROM users u WHERE u.office_id = o.id AND u.active = 1) AS tech_count,
+       (SELECT COALESCE(SUM(quantity),0) FROM item_stock s WHERE s.office_id = o.id) AS units_on_hand
+     FROM offices o ORDER BY o.is_main DESC, o.sort_order, o.name`
+  ).all();
+  res.json({ enabled: multiOffice(), offices: rows });
+});
+app.post('/api/offices', (req, res) => {
+  let o;
+  try { o = cleanOffice(req.body || {}); } catch (e) { return res.status(400).json({ error: e.message }); }
+  if (!o.name) return res.status(400).json({ error: 'Office name is required' });
+  try {
+    const cols = Object.keys(o);
+    const info = db.prepare(`INSERT INTO offices (${cols.join(', ')}) VALUES (${cols.map((c) => '@' + c).join(', ')})`).run(o);
+    res.status(201).json(db.prepare('SELECT * FROM offices WHERE id = ?').get(info.lastInsertRowid));
+  } catch (err) { res.status(400).json({ error: cleanDbError(err) }); }
+});
+app.patch('/api/offices/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const cur = db.prepare('SELECT * FROM offices WHERE id = ?').get(id);
+  if (!cur) return res.status(404).json({ error: 'Office not found' });
+  let o;
+  try { o = cleanOffice(req.body || {}); } catch (e) { return res.status(400).json({ error: e.message }); }
+  if ('name' in o && !o.name) return res.status(400).json({ error: 'Office name is required' });
+  if (cur.is_main && o.active === 0) return res.status(400).json({ error: "The main office can't be deactivated" });
+  try {
+    const setMain = req.body && req.body.is_main === true && !cur.is_main;
+    const run = db.transaction(() => {
+      const cols = Object.keys(o);
+      if (cols.length) db.prepare(`UPDATE offices SET ${cols.map((c) => `${c} = @${c}`).join(', ')} WHERE id = @id`).run({ ...o, id });
+      if (setMain) {
+        db.prepare('UPDATE offices SET is_main = 0').run();
+        db.prepare('UPDATE offices SET is_main = 1, active = 1 WHERE id = ?').run(id);
+      }
+    });
+    run();
+    res.json(db.prepare('SELECT * FROM offices WHERE id = ?').get(id));
   } catch (err) { res.status(400).json({ error: cleanDbError(err) }); }
 });
 
 // --- dashboard -------------------------------------------------------------
 
-app.get('/api/dashboard', (req, res) => {
-  const totals = db.prepare('SELECT COUNT(*) AS items, COALESCE(SUM(quantity),0) AS units FROM items WHERE active = 1').get();
-  const lowStock = db
+// Low-stock rows: one per (item, office) that is at/below its level.
+function lowStockRows(office) {
+  return db
     .prepare(
-      `SELECT i.*, c.name AS category, u.name AS unit
-       FROM items i
+      `SELECT i.id, i.name, i.brand, i.barcode, i.image_url, c.name AS category, u.name AS unit,
+              s.quantity, s.low_stock_threshold, s.office_id, o.name AS office, l.name AS location
+       FROM item_stock s
+       JOIN items i ON i.id = s.item_id
+       JOIN offices o ON o.id = s.office_id
        LEFT JOIN categories c ON c.id = i.category_id
        LEFT JOIN units u ON u.id = i.unit_id
-       WHERE i.active = 1 AND i.low_stock_threshold > 0 AND i.quantity <= i.low_stock_threshold
-       ORDER BY (i.quantity * 1.0 / NULLIF(i.low_stock_threshold,0)) ASC`
+       LEFT JOIN locations l ON l.id = s.location_id
+       WHERE i.active = 1 AND o.active = 1 AND s.low_stock_threshold > 0 AND s.quantity <= s.low_stock_threshold
+         ${office ? 'AND s.office_id = @office' : ''}
+       ORDER BY o.is_main DESC, o.name, (s.quantity * 1.0 / s.low_stock_threshold) ASC, i.name COLLATE NOCASE`
     )
-    .all();
+    .all(office ? { office } : {})
+    .map((r) => ({ ...r, low: true }));
+}
+
+app.get('/api/dashboard', (req, res) => {
+  const office = officeFor(req, false);
+  const totals = office
+    ? db.prepare(
+        `SELECT COUNT(*) AS items, COALESCE(SUM(s.quantity),0) AS units
+         FROM items i LEFT JOIN item_stock s ON s.item_id = i.id AND s.office_id = ?
+         WHERE i.active = 1`
+      ).get(office)
+    : db.prepare('SELECT COUNT(*) AS items, COALESCE(SUM(quantity),0) AS units FROM items WHERE active = 1').get();
+  const lowStock = lowStockRows(office);
   const recent = db
     .prepare(
-      `SELECT t.*, i.name AS item_name, u.name AS user_name
+      `SELECT t.*, i.name AS item_name, u.name AS user_name, o.name AS office_name
        FROM transactions t
        LEFT JOIN items i ON i.id = t.item_id
        LEFT JOIN users u ON u.id = t.user_id
+       LEFT JOIN offices o ON o.id = t.office_id
+       ${office && multiOffice() ? 'WHERE t.office_id = @office' : ''}
        ORDER BY t.created_at DESC, t.id DESC LIMIT 10`
     )
-    .all();
-  res.json({ totals, lowStock: lowStock.map(itemWithLabels), recent });
+    .all(office && multiOffice() ? { office } : {});
+  res.json({ totals, lowStock, recent });
 });
 
 // --- settings --------------------------------------------------------------
@@ -657,6 +940,12 @@ app.put('/api/settings', (req, res) => {
     if (k === 'theme_default' && !['light', 'dark'].includes(val)) {
       return res.status(400).json({ error: 'Theme must be light or dark.' });
     }
+    if ((k === 'multi_office_enabled' || k === 'label_show_name') && !['0', '1'].includes(val)) {
+      return res.status(400).json({ error: 'Invalid on/off value.' });
+    }
+    if (k === 'label_size' && !LABEL_SIZES.includes(val)) {
+      return res.status(400).json({ error: 'Unknown label size.' });
+    }
     up.run(k, val);
   }
   res.json({ ok: true });
@@ -675,22 +964,24 @@ function toStamp(iso, fallback) {
   return d.toISOString().slice(0, 19).replace('T', ' '); // 'YYYY-MM-DD HH:MM:SS' UTC
 }
 
-function reportRows(fromIso, toIso) {
+function reportRows(fromIso, toIso, office) {
   const start = toStamp(fromIso, '1970-01-01 00:00:00');
   const end = toStamp(toIso, '9999-12-31 00:00:00');
+  const byOffice = office && multiOffice();
   return db
     .prepare(
-      `SELECT t.created_at, t.type, t.quantity,
+      `SELECT t.created_at, t.type, t.quantity, t.note,
               i.name AS item_name, i.barcode AS item_barcode,
-              c.name AS category, u.name AS user_name
+              c.name AS category, u.name AS user_name, o.name AS office_name
        FROM transactions t
        LEFT JOIN items i ON i.id = t.item_id
        LEFT JOIN categories c ON c.id = i.category_id
        LEFT JOIN users u ON u.id = t.user_id
-       WHERE t.created_at >= ? AND t.created_at < ?
+       LEFT JOIN offices o ON o.id = t.office_id
+       WHERE t.created_at >= @start AND t.created_at < @end ${byOffice ? 'AND t.office_id = @office' : ''}
        ORDER BY t.created_at ASC, t.id ASC`
     )
-    .all(start, end);
+    .all(byOffice ? { start, end, office } : { start, end });
 }
 
 function fmtLocal(stamp, tz) {
@@ -708,8 +999,8 @@ function fmtLocal(stamp, tz) {
 }
 
 app.get('/api/report/summary', (req, res) => {
-  const rows = reportRows(req.query.from, req.query.to);
-  const byType = { receive: 0, checkout: 0, return: 0, adjustment: 0 };
+  const rows = reportRows(req.query.from, req.query.to, officeFor(req, false));
+  const byType = { receive: 0, checkout: 0, return: 0, adjustment: 0, transfer_in: 0, transfer_out: 0 };
   const byItem = {};
   const byTech = {};
   for (const r of rows) {
@@ -733,16 +1024,19 @@ app.get('/api/report/summary', (req, res) => {
 });
 
 app.get('/api/report.csv', (req, res) => {
-  const rows = reportRows(req.query.from, req.query.to);
+  const rows = reportRows(req.query.from, req.query.to, officeFor(req, false));
   const tz = req.query.tz || 'UTC';
+  const multi = multiOffice();
   const esc = (v) => {
     const s = v == null ? '' : String(v);
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
-  const header = [`Date/Time (${tz})`, 'Type', 'Quantity', 'Item', 'Barcode', 'Category', 'Tech'];
-  const lines = [header.join(',')];
+  const header = [`Date/Time (${tz})`, 'Type', 'Quantity', 'Item', 'Barcode', 'Category', 'Tech']
+    .concat(multi ? ['Office'] : [], ['Note']);
+  const lines = [header.map(esc).join(',')];
   for (const r of rows) {
-    lines.push([fmtLocal(r.created_at, tz), r.type, r.quantity, r.item_name, r.item_barcode, r.category, r.user_name].map(esc).join(','));
+    lines.push([fmtLocal(r.created_at, tz), r.type, r.quantity, r.item_name, r.item_barcode, r.category, r.user_name]
+      .concat(multi ? [r.office_name] : [], [r.note]).map(esc).join(','));
   }
   const label = (req.query.label || 'report').replace(/[^\w.-]+/g, '_');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');

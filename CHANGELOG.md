@@ -2,6 +2,34 @@
 
 All notable changes to StockTrax, newest first.
 
+## 0.6.0
+- **Fix (printing, for real this time):** labels, badges and reports now print from
+  an isolated hidden frame, so only the label/sheet ever reaches the printer — never
+  the admin page. Item labels print the **barcode only** by default.
+- **New: Label printing settings** — label size (regular paper, or 2.25×1.25, 2×1,
+  3×1, 4×2, 4×6 in for label printers), optional item name above the barcode, and a
+  "Print a test label" button.
+- **New: Print reorder list** on the Dashboard's low-stock card — a clean sheet with
+  item, barcode, room, on hand, alert level, plus blank Order qty / Ordered ✓ columns
+  and office name/address/phone in the header.
+- **New: Activity log filters + Print log** — filter by date range, movement type
+  and tech, then print exactly what's on screen.
+- **New: Multi-office setup** (Settings → Offices, off by default). Each office has
+  name, address, phone, email, manager, business license #, and notes. With it on:
+  - each office keeps its own stock counts, low-stock levels and stock rooms
+    (shared product catalog);
+  - an **Office** switcher in the header (or "All offices" with a per-office breakdown);
+  - **Transfer** stock between offices (logged at both ends);
+  - techs have a home office; each kiosk can be pinned to an office with its
+    **Kiosk link** (`/kiosk.html?office=ID`), otherwise it uses the tech's home office;
+  - reports, CSV exports, log and printouts are office-aware.
+- **Upgrade is automatic:** on first start your existing stock, rooms, techs and
+  history are attached to a "main" office (named after your company). Single-office
+  users see no change. Tip: fill in your office address in Settings → Offices so it
+  prints on the reorder list.
+- Fix: "Print badge" no longer breaks for names with an apostrophe (e.g. O'Brien).
+- Static files are version-stamped so browsers pick up new versions right away.
+
 ## 0.5.1
 - **Fix:** printing a barcode now prints only the label (item name or tech name +
   barcode), not the whole page.

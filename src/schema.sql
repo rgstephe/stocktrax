@@ -10,6 +10,28 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT
 );
 
+-- Offices / branches. There is always one "main" office (created on first
+-- boot / upgrade). Multi-office mode is switched on in Settings; until then
+-- everything quietly runs against the main office.
+CREATE TABLE IF NOT EXISTS offices (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  name          TEXT NOT NULL UNIQUE,
+  address_line1 TEXT,
+  address_line2 TEXT,
+  city          TEXT,
+  state         TEXT,
+  zip           TEXT,
+  phone         TEXT,
+  email         TEXT,
+  manager       TEXT,
+  license_no    TEXT,                   -- state pesticide business license, etc.
+  notes         TEXT,
+  is_main       INTEGER NOT NULL DEFAULT 0,
+  active        INTEGER NOT NULL DEFAULT 1,
+  sort_order    INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   name          TEXT NOT NULL,
@@ -18,6 +40,7 @@ CREATE TABLE IF NOT EXISTS users (
   pin           TEXT,                   -- legacy; superseded by password_hash
   password_hash TEXT,                   -- scrypt hash for admin console login
   recovery_hash TEXT,                   -- scrypt hash of the account recovery code
+  office_id     INTEGER REFERENCES offices(id) ON DELETE SET NULL, -- home office
   active        INTEGER NOT NULL DEFAULT 1,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -42,11 +65,13 @@ CREATE TABLE IF NOT EXISTS units (
 );
 
 -- Physical rooms/areas stock lives in (warehouse, chemical room, tool room…).
--- Not seeded — the user adds whatever rooms they want.
+-- Each room belongs to an office. Not seeded — the user adds whatever rooms they want.
 CREATE TABLE IF NOT EXISTS locations (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  name       TEXT NOT NULL UNIQUE,
-  sort_order INTEGER NOT NULL DEFAULT 0
+  name       TEXT NOT NULL,
+  office_id  INTEGER REFERENCES offices(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (office_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS items (
@@ -56,10 +81,10 @@ CREATE TABLE IF NOT EXISTS items (
   brand               TEXT,
   category_id         INTEGER REFERENCES categories(id) ON DELETE SET NULL,
   unit_id             INTEGER REFERENCES units(id) ON DELETE SET NULL,
-  location_id         INTEGER REFERENCES locations(id) ON DELETE SET NULL,
+  location_id         INTEGER REFERENCES locations(id) ON DELETE SET NULL, -- legacy/default; per-office room lives in item_stock
   image_url           TEXT,
-  quantity            INTEGER NOT NULL DEFAULT 0,
-  low_stock_threshold INTEGER NOT NULL DEFAULT 0,
+  quantity            INTEGER NOT NULL DEFAULT 0,   -- total across all offices (kept in sync)
+  low_stock_threshold INTEGER NOT NULL DEFAULT 0,   -- default alert level for new offices
   notes               TEXT,
   active              INTEGER NOT NULL DEFAULT 1,
   created_at          TEXT NOT NULL DEFAULT (datetime('now')),
@@ -68,12 +93,24 @@ CREATE TABLE IF NOT EXISTS items (
 
 CREATE INDEX IF NOT EXISTS idx_items_barcode ON items(barcode);
 
+-- On-hand stock per item per office. This is the source of truth for counts;
+-- items.quantity is the cached total across offices.
+CREATE TABLE IF NOT EXISTS item_stock (
+  item_id             INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  office_id           INTEGER NOT NULL REFERENCES offices(id) ON DELETE CASCADE,
+  quantity            INTEGER NOT NULL DEFAULT 0,
+  low_stock_threshold INTEGER NOT NULL DEFAULT 0,
+  location_id         INTEGER REFERENCES locations(id) ON DELETE SET NULL,
+  PRIMARY KEY (item_id, office_id)
+);
+
 -- Every stock movement is an immutable row here. This is the audit trail.
 CREATE TABLE IF NOT EXISTS transactions (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
   user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  type       TEXT NOT NULL CHECK (type IN ('receive','checkout','return','adjustment')),
+  office_id  INTEGER REFERENCES offices(id) ON DELETE SET NULL,
+  type       TEXT NOT NULL CHECK (type IN ('receive','checkout','return','adjustment','transfer_out','transfer_in')),
   quantity   INTEGER NOT NULL,          -- always positive; `type` decides direction
   note       TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

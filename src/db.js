@@ -85,6 +85,102 @@ if (unitCount === 0) {
   );
 }
 
+seedSetting.run('multi_office_enabled', '0');
+seedSetting.run('label_size', 'sheet');
+seedSetting.run('label_show_name', '0');
+
+// ---- Offices migration (v0.6.0) ------------------------------------------
+// Every install gets a "main" office. Existing stock, stock rooms, techs and
+// history are attached to it, so single-office users see no difference.
+function tableSql(name) {
+  const r = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+  return r ? r.sql : '';
+}
+
+let mainOffice = db.prepare('SELECT id FROM offices WHERE is_main = 1 ORDER BY id LIMIT 1').get();
+if (!mainOffice) {
+  const anyOffice = db.prepare('SELECT id FROM offices ORDER BY id LIMIT 1').get();
+  if (anyOffice) {
+    db.prepare('UPDATE offices SET is_main = 1 WHERE id = ?').run(anyOffice.id);
+    mainOffice = anyOffice;
+  } else {
+    const co = (db.prepare("SELECT value FROM settings WHERE key = 'company_name'").get() || {}).value;
+    const name = co && co.trim() && co.trim() !== 'StockTrax' ? co.trim() : 'Main Office';
+    const info = db.prepare('INSERT INTO offices (name, is_main) VALUES (?, 1)').run(name);
+    mainOffice = { id: Number(info.lastInsertRowid) };
+  }
+}
+const MAIN_OFFICE_ID = mainOffice.id;
+
+ensureColumn('users', 'office_id', 'INTEGER');
+
+// Older databases need two tables rebuilt (SQLite can't alter a UNIQUE or
+// CHECK constraint in place): locations become per-office, and transactions
+// gain an office column plus the transfer movement types. This is SQLite's
+// documented create-copy-drop-rename procedure, done atomically.
+const needLocRebuild = !/office_id/.test(tableSql('locations'));
+const needTxRebuild = !/transfer_in/.test(tableSql('transactions'));
+if (needLocRebuild || needTxRebuild) {
+  db.pragma('foreign_keys = OFF');
+  const rebuild = db.transaction(() => {
+    if (needLocRebuild) {
+      db.exec(`CREATE TABLE locations_new (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL,
+        office_id  INTEGER REFERENCES offices(id) ON DELETE CASCADE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (office_id, name)
+      )`);
+      db.prepare('INSERT INTO locations_new (id, name, office_id, sort_order) SELECT id, name, ?, sort_order FROM locations')
+        .run(MAIN_OFFICE_ID);
+      db.exec('DROP TABLE locations');
+      db.exec('ALTER TABLE locations_new RENAME TO locations');
+    }
+    if (needTxRebuild) {
+      const hasOfficeCol = /office_id/.test(tableSql('transactions'));
+      db.exec(`CREATE TABLE transactions_new (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        office_id  INTEGER REFERENCES offices(id) ON DELETE SET NULL,
+        type       TEXT NOT NULL CHECK (type IN ('receive','checkout','return','adjustment','transfer_out','transfer_in')),
+        quantity   INTEGER NOT NULL,
+        note       TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`);
+      db.prepare(
+        `INSERT INTO transactions_new (id, item_id, user_id, office_id, type, quantity, note, created_at)
+         SELECT id, item_id, user_id, ${hasOfficeCol ? 'COALESCE(office_id, @m)' : '@m'}, type, quantity, note, created_at FROM transactions`
+      ).run({ m: MAIN_OFFICE_ID });
+      db.exec('DROP TABLE transactions');
+      db.exec('ALTER TABLE transactions_new RENAME TO transactions');
+    }
+  });
+  rebuild();
+  db.pragma('foreign_keys = ON');
+  console.log('[migrate] Upgraded database for multi-office support.');
+}
+
+// Indexes that reference columns added above (so they come after migration).
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_tx_item ON transactions(item_id);
+  CREATE INDEX IF NOT EXISTS idx_tx_user ON transactions(user_id);
+  CREATE INDEX IF NOT EXISTS idx_tx_created ON transactions(created_at);
+  CREATE INDEX IF NOT EXISTS idx_tx_office ON transactions(office_id);
+  CREATE INDEX IF NOT EXISTS idx_stock_office ON item_stock(office_id);
+`);
+
+// Anything not yet attached to an office belongs to the main office.
+db.prepare('UPDATE users SET office_id = ? WHERE office_id IS NULL').run(MAIN_OFFICE_ID);
+db.prepare('UPDATE locations SET office_id = ? WHERE office_id IS NULL').run(MAIN_OFFICE_ID);
+db.prepare('UPDATE transactions SET office_id = ? WHERE office_id IS NULL').run(MAIN_OFFICE_ID);
+// Items with no per-office stock rows yet: their current count moves to main.
+db.prepare(
+  `INSERT OR IGNORE INTO item_stock (item_id, office_id, quantity, low_stock_threshold, location_id)
+   SELECT id, ?, quantity, low_stock_threshold, location_id FROM items
+   WHERE id NOT IN (SELECT item_id FROM item_stock)`
+).run(MAIN_OFFICE_ID);
+
 const userCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 if (userCount === 0) {
   // A starter admin so you can log into the console on first boot.
@@ -92,8 +188,8 @@ if (userCount === 0) {
   // Change it immediately in Settings and set a recovery code.
   const startPw = process.env.ADMIN_PASSWORD || 'admin';
   db.prepare(
-    "INSERT INTO users (name, role, badge_barcode, password_hash) VALUES (?, 'admin', ?, ?)"
-  ).run('Admin', 'ADMIN-0001', hashPassword(startPw));
+    "INSERT INTO users (name, role, badge_barcode, password_hash, office_id) VALUES (?, 'admin', ?, ?, ?)"
+  ).run('Admin', 'ADMIN-0001', hashPassword(startPw), MAIN_OFFICE_ID);
 }
 
 module.exports = db;

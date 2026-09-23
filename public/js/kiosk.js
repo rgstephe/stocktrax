@@ -14,6 +14,37 @@ const modeToggle = document.getElementById('modeToggle');
 const modeWord = document.getElementById('modeWord');
 const toastEl = document.getElementById('toast');
 
+// ---- office ---------------------------------------------------------------
+// Multi-office: a kiosk can be pinned to an office with ?office=<id> in its
+// URL (Settings → Offices → Kiosk link). Otherwise each tech's scans count
+// against their home office.
+const pinnedOffice = (() => {
+  const v = new URLSearchParams(location.search).get('office');
+  return v && /^\d+$/.test(v) ? Number(v) : null;
+})();
+let multiOffice = false;
+let kioskOffice = null;          // { id, name } when pinned
+const officeTag = document.getElementById('kioskOffice');
+fetch('/api/branding').then((r) => r.json()).then(async (b) => {
+  multiOffice = !!b.multi_office;
+  if (multiOffice && pinnedOffice) {
+    try { kioskOffice = await api.get('/api/kiosk/office/' + pinnedOffice); } catch (e) { kioskOffice = null; }
+  }
+  showOfficeTag();
+}).catch(() => {});
+function activeOfficeId() {
+  if (!multiOffice) return undefined;
+  if (kioskOffice) return kioskOffice.id;
+  return currentUser && currentUser.office_id ? currentUser.office_id : undefined;
+}
+function showOfficeTag() {
+  if (!officeTag) return;
+  let name = '';
+  if (multiOffice) name = kioskOffice ? kioskOffice.name : (currentUser && currentUser.office) || '';
+  officeTag.textContent = name;
+  officeTag.style.display = name ? '' : 'none';
+}
+
 // ---- scanner capture (keyboard wedge) -------------------------------------
 // A USB scanner "types" the barcode then presses Enter. We buffer printable
 // keys and process the whole string on Enter. Works no matter what's focused.
@@ -52,6 +83,7 @@ async function loginByBadge(code) {
     const user = await api.get('/api/users/badge/' + encodeURIComponent(code));
     currentUser = user;
     techName.textContent = user.name;
+    showOfficeTag();
     sessionList.innerHTML = '';
     setMode('checkout');
     showSession(true);
@@ -64,7 +96,8 @@ async function loginByBadge(code) {
 async function scanItem(code) {
   let item;
   try {
-    item = await api.get('/api/items/barcode/' + encodeURIComponent(code));
+    const oid = activeOfficeId();
+    item = await api.get('/api/items/barcode/' + encodeURIComponent(code) + (oid ? '?office_id=' + oid : ''));
   } catch (err) {
     toast('Item not in catalog — see admin to add it', true);
     return;
@@ -75,6 +108,7 @@ async function scanItem(code) {
       user_id: currentUser.id,
       type: mode,
       quantity: 1,
+      office_id: activeOfficeId(),
     });
     addSessionRow(item, mode, result);
     toast((mode === 'checkout' ? 'Took ' : 'Returned ') + item.name);
@@ -121,6 +155,7 @@ function setMode(m) {
 document.getElementById('doneBtn').addEventListener('click', signOut);
 function signOut() {
   currentUser = null;
+  showOfficeTag();
   showSession(false);
   clearTimeout(idleTimer);
 }

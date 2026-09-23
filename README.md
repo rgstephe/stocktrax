@@ -40,7 +40,15 @@ No cloud, no accounts to buy, no build step. One Docker container.
   default. **CSV inventory export** for backups.
 - **White-labeling.** Set your company name, tagline, and logo in Settings and
   StockTrax rebrands itself across the kiosk, landing page, and browser tab.
-- **Full audit log.** Who took what, when — receives, checkouts, and returns.
+- **Full audit log.** Who took what, when — receives, checkouts, returns,
+  adjustments and transfers. Filter by date, movement or tech and print it.
+- **Printable reorder list.** One click prints everything that's low, with blank
+  order-quantity columns, ready for placing supplier orders.
+- **Label printer support.** Barcode-only labels on regular paper or common
+  label sizes (2.25×1.25, 2×1, 3×1, 4×2, 4×6 in).
+- **Multi-office (optional).** Turn it on in Settings → Offices to run branch
+  offices: per-office stock, low-stock alerts, stock rooms, techs and kiosks,
+  plus transfers between offices. Off by default; single-location shops never see it.
 
 ## Quick start (Docker)
 
@@ -133,7 +141,8 @@ into the code:
 ### Roadmap ideas
 - Photo upload for products without a database image
 - Camera-based take/return on mobile (the scanner is already reusable)
-- Multiple admin accounts with roles/permissions
+- Multiple admin accounts with roles/permissions (e.g. office managers limited to their own office)
+- Supplier field on items, so the reorder list can group by supplier
 - Report breakdowns by location
 
 ## Accounts & security

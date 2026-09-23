@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>StockTrax — Admin Console</title>
-  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/style.css?v=0.6.0" />
 </head>
 <body>
   <header class="admin-top">
@@ -18,6 +18,10 @@
       <button data-tab="reports">Reports</button>
       <button data-tab="settings">Settings</button>
     </nav>
+    <div class="office-switch" id="officeSwitch" hidden>
+      <label for="officeSel">Office</label>
+      <select id="officeSel"></select>
+    </div>
     <div class="whoami"><span id="whoName">Admin Console</span> · <button id="logoutBtn" style="background:none;border:none;color:#8aa0b6;cursor:pointer;text-decoration:underline;font-size:13px;">Sign out</button></div>
   </header>
 
@@ -30,7 +34,10 @@
       <div id="lowBanner"></div>
       <div class="grid stats" id="stats"></div>
       <div class="card">
-        <h3>Low stock</h3>
+        <div class="card-head">
+          <h3>Low stock</h3>
+          <button class="btn btn-sm" id="printLow">Print reorder list</button>
+        </div>
         <div id="lowTable"></div>
       </div>
       <div class="card">
@@ -48,6 +55,10 @@
           <label for="rcvBarcode">Barcode</label>
           <input id="rcvBarcode" placeholder="Scan or type a barcode, then press Enter" autocomplete="off" />
           <button class="btn btn-sm btn-ghost" id="rcvGenBarcode" style="margin-top:8px;">No barcode? Generate one</button>
+        </div>
+        <div class="field office-only" id="rcvOfficeField" style="max-width:320px;">
+          <label for="rcvOffice">Receiving into office</label>
+          <select id="rcvOffice"></select>
         </div>
         <div id="rcvPreview"></div>
         <div id="rcvForm" style="display:none;">
@@ -99,6 +110,7 @@
           <div class="field"><label>Role</label>
             <select id="techRole"><option value="tech">Tech</option><option value="admin">Admin</option></select>
           </div>
+          <div class="field office-only"><label>Home office</label><select id="techOffice"></select></div>
         </div>
         <button class="btn btn-primary" id="techAdd">Add tech &amp; make badge</button>
       </div>
@@ -116,6 +128,29 @@
     <section id="log" class="tab">
       <h2 class="page-title">Activity log</h2>
       <p class="page-sub">Every stock movement — who, what, when.</p>
+      <div class="card">
+        <div class="row" style="align-items:flex-end;">
+          <div class="field" style="margin:0;"><label>From</label><input id="logFrom" type="date" /></div>
+          <div class="field" style="margin:0;"><label>To</label><input id="logTo" type="date" /></div>
+          <div class="field" style="margin:0;"><label>Movement</label>
+            <select id="logType">
+              <option value="">All movements</option>
+              <option value="checkout">Taken (checkout)</option>
+              <option value="return">Returned</option>
+              <option value="receive">Received</option>
+              <option value="adjustment">Adjustments</option>
+              <option value="transfer" class="office-only">Transfers</option>
+            </select>
+          </div>
+          <div class="field" style="margin:0;"><label>Tech</label><select id="logTech"><option value="">Everyone</option></select></div>
+        </div>
+        <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-primary" id="logApply">Apply filters</button>
+          <button class="btn btn-ghost" id="logClear">Clear</button>
+          <button class="btn" id="logPrint" style="margin-left:auto;">Print log</button>
+        </div>
+        <p id="logCount" style="margin:12px 0 0; color:var(--muted); font-size:13px;"></p>
+      </div>
       <div class="card"><div id="logTable"></div></div>
     </section>
 
@@ -197,6 +232,41 @@
         </div>
       </div>
 
+      <div class="card" id="officesCard">
+        <h3>Offices</h3>
+        <label class="check-row">
+          <input type="checkbox" id="multiOfficeToggle" />
+          <span><b>Enable multi-office setup</b><br>
+          <small>For branch offices. Each office keeps its own stock counts, low-stock list, stock rooms, and techs, and you can transfer stock between offices. Leave off if you run one location.</small></span>
+        </label>
+        <div id="officeList" style="margin-top:16px;"></div>
+        <button class="btn btn-sm office-only" id="addOffice" style="margin-top:12px;">+ Add office</button>
+      </div>
+
+      <div class="card">
+        <h3>Label printing</h3>
+        <p style="margin:-6px 0 14px; color:var(--muted); font-size:13px;">How item barcode labels print. Pick a label size if you use a label printer (Dymo, Zebra, Rollo…); pick Regular paper for a normal printer.</p>
+        <div class="row">
+          <div class="field"><label>Label size</label>
+            <select id="setLabelSize">
+              <option value="sheet">Regular paper (barcode only, top of page)</option>
+              <option value="2.25x1.25">2.25 × 1.25 in label</option>
+              <option value="2x1">2 × 1 in label</option>
+              <option value="3x1">3 × 1 in label</option>
+              <option value="4x2">4 × 2 in label</option>
+              <option value="4x6">4 × 6 in label</option>
+            </select>
+          </div>
+          <div class="field" style="display:flex; align-items:flex-end;">
+            <label class="check-row" style="margin:0 0 10px;"><input type="checkbox" id="setLabelName" /> <span>Print the item name above the barcode</span></label>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-primary" id="setLabelSave">Save label settings</button>
+          <button class="btn" id="labelTest">Print a test label</button>
+        </div>
+      </div>
+
       <div class="card">
         <h3>Barcode lookup</h3>
         <div class="row">
@@ -233,7 +303,8 @@
         <h3>Stock locations</h3>
         <p style="margin:-6px 0 14px; color:var(--muted); font-size:13px;">Rooms or areas your stock lives in — warehouse, chemical room, tool room, etc. Assign one to each item when receiving.</p>
         <div id="locationList"></div>
-        <div class="row" style="margin-top:12px; max-width:420px;">
+        <div class="row" style="margin-top:12px; max-width:620px;">
+          <div class="field office-only" style="margin:0;"><select id="newLocationOffice"></select></div>
           <div class="field" style="margin:0;"><input id="newLocation" placeholder="New location (e.g. Chemical Room)" /></div>
           <button class="btn btn-sm" id="addLocation" style="flex:0;">Add</button>
         </div>
@@ -247,9 +318,6 @@
 
   </main>
 
-  <!-- print-only surface: only this prints when printing a label/sheet -->
-  <div id="printRoot"></div>
-
   <!-- generic modal -->
   <div class="modal-backdrop" id="modalBackdrop">
     <div class="modal" id="modalBox"></div>
@@ -257,9 +325,10 @@
 
   <div class="toast" id="toast"></div>
 
-  <script src="/js/api.js"></script>
-  <script src="/js/branding.js"></script>
-  <script src="/js/code39.js"></script>
-  <script src="/js/admin.js"></script>
+  <script src="/js/api.js?v=0.6.0"></script>
+  <script src="/js/branding.js?v=0.6.0"></script>
+  <script src="/js/code39.js?v=0.6.0"></script>
+  <script src="/js/print.js?v=0.6.0"></script>
+  <script src="/js/admin.js?v=0.6.0"></script>
 </body>
 </html>

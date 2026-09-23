@@ -304,31 +304,29 @@ tr.is-low td { background: var(--signal-bg); }
 .item-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ---- printing ----------------------------------------------------------
-   #printRoot holds ONLY what should print (a single label, or a badge sheet).
-   It sits off-screen normally; at print time everything else is removed. */
-#printRoot { position: fixed; left: -100000px; top: 0; }
-.print-label { text-align: center; font-family: var(--sans); padding: 6px 0; }
-.print-label .plabel-name { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
-.print-label svg { width: 3in; max-width: 3in; height: auto; }
-
-.badge-page { display: grid; grid-template-columns: 1fr 1fr; }
-.badge-cell {
-  text-align: center; padding: 14px 10px; border: 1px dashed #bbb;
-  break-inside: avoid; page-break-inside: avoid;
-}
-.badge-cell .bname { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
-.badge-cell svg { width: 3in; max-width: 3in; height: auto; }
-
+   All printing happens in an isolated iframe (see public/js/print.js), so the
+   admin page itself never prints. This is just a safety net if someone uses
+   the browser's own Print menu on the admin page. */
 @media print {
-  /* isolate the print surface: remove everything except #printRoot from layout
-     (display:none, so no stray blank pages) */
-  body > *:not(#printRoot) { display: none !important; }
-  #printRoot { position: static !important; left: auto !important; }
-  .no-print { display: none !important; }
-  .badge-page { break-after: page; }
-  .badge-page:last-child { break-after: auto; }
-  body { background: #fff; }
-  @page { margin: 0.4in; }
+  .admin-top, .no-print, .toast, .modal-backdrop { display: none !important; }
 }
 
-
+/* ---- multi-office ------------------------------------------------------ */
+body:not(.multi) .office-only { display: none !important; }
+.office-switch { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8aa0b6; }
+.office-switch[hidden] { display: none; }
+.office-switch select {
+  background: var(--ink-2); color: #fff; border: 1px solid #33475d; border-radius: 8px;
+  padding: 6px 10px; font-size: 14px; font-weight: 600; font-family: inherit; max-width: 220px;
+}
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.card-head h3 { margin: 0; }
+.check-row { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; font-size: 14px; }
+.check-row input { width: auto; margin-top: 3px; }
+.check-row small { color: var(--muted); font-size: 13px; }
+.stock-break { display: block; font-size: 12px; color: var(--muted); font-family: var(--sans); white-space: nowrap; }
+.stock-break .low { color: #7a5210; font-weight: 700; }
+.pill.transfer_in, .pill.transfer_out { background: #e6ecfb; color: #23408f; }
+.pill.main { background: var(--ink); color: #fff; }
+.office-addr { color: var(--muted); font-size: 12px; }
+.kiosk-office { font-size: 12px; font-weight: 700; color: var(--k-muted); text-transform: uppercase; letter-spacing: .06em; }

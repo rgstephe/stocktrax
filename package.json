@@ -1,6 +1,6 @@
 {
   "name": "stocktrax",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Simple self-hosted barcode inventory: scan in, scan out, logged per user. Complete Inventory Control, On Your Terms.",
   "license": "AGPL-3.0-or-later",
   "main": "src/server.js",
