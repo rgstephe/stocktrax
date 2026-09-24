@@ -1,5 +1,5 @@
 /*
- * StockTrax — self-hosted barcode inventory.
+ * Allokis: self-hosted barcode inventory. Everything accounted for.
  * Copyright (C) 2026 Ultra Pest Control.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -75,7 +75,7 @@ app.use((req, res, next) => {
 // CSRF defense: for state-changing requests, require that the browser's Origin
 // (or Referer) matches this host. Browsers always send Origin on cross-site
 // POST/PUT/PATCH, so this blocks forged requests without needing token plumbing.
-// Non-browser clients (no Origin/Referer) are allowed — they aren't a CSRF vector.
+// Non-browser clients (no Origin/Referer) are allowed; they aren't a CSRF vector.
 function isSameOrigin(req) {
   const host = req.headers.host;
   const source = req.headers.origin || req.headers.referer;
@@ -212,7 +212,7 @@ function cleanDbError(err) {
     if (code.includes('NOTNULL')) return 'A required field is missing.';
     if (code.includes('CHECK')) return "That value isn't allowed.";
     if (code.includes('FOREIGNKEY')) return 'A related record was not found.';
-    return 'Could not save — please check the values and try again.';
+    return 'Could not save. Please check the values and try again.';
   }
   return (err && err.message) ? err.message : 'Request failed';
 }
@@ -248,7 +248,7 @@ function parseCookies(req) {
 }
 
 function setSessionCookie(res, token) {
-  // Set COOKIE_SECURE=true once you serve StockTrax over HTTPS.
+  // Set COOKIE_SECURE=true once you serve Allokis over HTTPS.
   const secure = String(process.env.COOKIE_SECURE || '').toLowerCase() === 'true' ? ' Secure;' : '';
   res.setHeader('Set-Cookie', `st_session=${token}; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=${SESSION_MS / 1000}`);
 }
@@ -297,7 +297,7 @@ setInterval(() => {
 }, 60 * 60 * 1000).unref();
 
 // ===========================================================================
-// PUBLIC routes (kiosk + auth). No login required — the kiosk identifies techs
+// PUBLIC routes (kiosk + auth). No login required: the kiosk identifies techs
 // by badge scan, not by console login.
 // ===========================================================================
 
@@ -309,8 +309,8 @@ app.get('/admin.html', (req, res, next) => {
 
 app.get('/api/branding', (req, res) => {
   res.json({
-    company_name: getSetting('company_name', 'StockTrax'),
-    tagline: getSetting('brand_tagline', 'Complete Inventory Control, On Your Terms'),
+    company_name: getSetting('company_name', 'Allokis'),
+    tagline: getSetting('brand_tagline', 'Everything accounted for.'),
     logo_data_url: getSetting('logo_data_url', ''),
     theme_default: getSetting('theme_default', 'dark'),
     multi_office: multiOffice(),
@@ -325,7 +325,7 @@ app.get('/api/kiosk/office/:id', (req, res) => {
 });
 
 app.get('/api/version', (req, res) => {
-  res.json({ version: pkg.version, name: 'StockTrax' });
+  res.json({ version: pkg.version, name: 'Allokis' });
 });
 
 app.get('/api/users/badge/:barcode', (req, res) => {
@@ -377,7 +377,7 @@ app.post('/api/transactions', optionalAuth, (req, res) => {
 // --- login / session / recovery -------------------------------------------
 
 app.post('/api/login', (req, res) => {
-  if (tooMany(req.ip)) return res.status(429).json({ error: 'Too many attempts — wait a few minutes and try again.' });
+  if (tooMany(req.ip)) return res.status(429).json({ error: 'Too many attempts. Wait a few minutes and try again.' });
   const { name, password } = req.body || {};
   const user = db
     .prepare("SELECT * FROM users WHERE name = ? AND role = 'admin' AND active = 1")
@@ -411,7 +411,7 @@ app.get('/api/me', (req, res) => {
 // Forgot-password: reset using the saved recovery code. Rotates the code and
 // invalidates existing sessions.
 app.post('/api/recover', (req, res) => {
-  if (tooMany(req.ip)) return res.status(429).json({ error: 'Too many attempts — wait a few minutes and try again.' });
+  if (tooMany(req.ip)) return res.status(429).json({ error: 'Too many attempts. Wait a few minutes and try again.' });
   const { name, code, new_password } = req.body || {};
   if (!new_password || String(new_password).length < 8) {
     return res.status(400).json({ error: 'New password must be at least 8 characters.' });
@@ -557,7 +557,7 @@ const updateItem = db.transaction((id, b, office) => {
   const params = { id };
   for (const f of fields) if (f in b) { sets.push(`${f} = @${f}`); params[f] = b[f]; }
   if (!office || !multiOffice()) {
-    // item-level default (and legacy column) — only from single-office / all view
+    // item-level default (and legacy column): only from single-office / all view
     for (const f of perOffice) if (f in b) { sets.push(`${f} = @${f}`); params[f] = b[f]; }
   }
   if (sets.length) {
@@ -687,7 +687,7 @@ app.get('/api/items.csv', (req, res) => {
   }
   const stamp = new Date().toISOString().slice(0, 10);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="stocktrax_inventory_${stamp}.csv"`);
+  res.setHeader('Content-Disposition', `attachment; filename="allokis_inventory_${stamp}.csv"`);
   res.send(lines.join('\r\n'));
 });
 
@@ -1011,7 +1011,7 @@ app.get('/api/report/summary', (req, res) => {
     else if (r.type === 'checkout') byItem[ik].taken += r.quantity;
     else if (r.type === 'return') byItem[ik].returned += r.quantity;
     if (r.type === 'checkout') {
-      const tk = r.user_name || '—';
+      const tk = r.user_name || '-';
       byTech[tk] = (byTech[tk] || 0) + r.quantity;
     }
   }
@@ -1040,7 +1040,7 @@ app.get('/api/report.csv', (req, res) => {
   }
   const label = (req.query.label || 'report').replace(/[^\w.-]+/g, '_');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="stocktrax_${label}.csv"`);
+  res.setHeader('Content-Disposition', `attachment; filename="allokis_${label}.csv"`);
   res.send(lines.join('\r\n'));
 });
 
@@ -1048,5 +1048,5 @@ app.get('/api/report.csv', (req, res) => {
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.listen(PORT, () => {
-  console.log(`StockTrax running on http://localhost:${PORT}`);
+  console.log(`Allokis running on http://localhost:${PORT}`);
 });

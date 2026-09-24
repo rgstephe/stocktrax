@@ -1,4 +1,4 @@
--- StockTrax schema
+-- Allokis schema
 -- Design note: categories, units, and settings live in tables (not hardcoded)
 -- so the same app serves pest control, landscaping, electrical, etc. by config alone.
 
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS units (
 );
 
 -- Physical rooms/areas stock lives in (warehouse, chemical room, tool room…).
--- Each room belongs to an office. Not seeded — the user adds whatever rooms they want.
+-- Each room belongs to an office. Not seeded; the user adds whatever rooms they want.
 CREATE TABLE IF NOT EXISTS locations (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT NOT NULL,

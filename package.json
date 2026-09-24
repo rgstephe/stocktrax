@@ -1,7 +1,7 @@
 {
-  "name": "stocktrax",
-  "version": "0.6.0",
-  "description": "Simple self-hosted barcode inventory: scan in, scan out, logged per user. Complete Inventory Control, On Your Terms.",
+  "name": "allokis",
+  "version": "0.7.0",
+  "description": "Self-hosted barcode inventory: scan it in, scan it out, every movement logged per person. Everything accounted for.",
   "license": "AGPL-3.0-or-later",
   "main": "src/server.js",
   "scripts": {

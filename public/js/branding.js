@@ -1,6 +1,6 @@
 // Applies company branding (name, logo, tagline) to any page that includes it.
 // Runs on the kiosk, landing, and admin pages so a business owner's branding
-// shows everywhere. Safe if the endpoint is unreachable — falls back silently.
+// shows everywhere. Safe if the endpoint is unreachable; falls back silently.
 (function () {
   fetch('/api/branding')
     .then((r) => r.json())
@@ -9,14 +9,14 @@
       const hasLogo = !!b.logo_data_url;
 
       // Browser tab needs text (a logo can't render in a tab): prefer the
-      // company name, then the tagline, then fall back to StockTrax.
-      const titleName = name || (b.tagline || '').trim() || 'StockTrax';
-      const suffix = (document.title.split('—')[1] || '').trim();
-      document.title = suffix ? titleName + ' — ' + suffix : titleName;
+      // company name, then the tagline, then fall back to Allokis.
+      const titleName = name || (b.tagline || '').trim() || 'Allokis';
+      const suffix = (document.title.split('·')[1] || '').trim();
+      document.title = suffix ? titleName + ' · ' + suffix : titleName;
 
-      // Leave the hand-designed default "StockTrax" wordmark (amber accent)
+      // Leave the default Allokis logo
       // untouched only when truly unconfigured: no logo and no custom name.
-      const unconfigured = (!name || name === 'StockTrax') && !hasLogo;
+      const unconfigured = (!name || name === 'Allokis' || name === 'StockTrax') && !hasLogo;
       if (unconfigured) return;
 
       document.querySelectorAll('.wordmark').forEach((el) => {
@@ -44,5 +44,5 @@
         });
       }
     })
-    .catch(() => { /* keep default StockTrax branding */ });
+    .catch(() => { /* keep default Allokis branding */ });
 })();

@@ -99,7 +99,7 @@ async function scanItem(code) {
     const oid = activeOfficeId();
     item = await api.get('/api/items/barcode/' + encodeURIComponent(code) + (oid ? '?office_id=' + oid : ''));
   } catch (err) {
-    toast('Item not in catalog — see admin to add it', true);
+    toast('Item not in catalog. See an admin to add it.', true);
     return;
   }
   try {

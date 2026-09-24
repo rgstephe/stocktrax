@@ -1,6 +1,6 @@
 // Isolated printing. Everything we print (labels, badge sheets, the reorder
 // list, the activity log) is written into a hidden, throw-away iframe and
-// printed from there — so the browser only ever sees that document, never the
+// printed from there, so the browser only ever sees that document, never the
 // admin page behind it. This doesn't depend on page CSS, so a stale cached
 // stylesheet can't cause the whole page to print.
 (function (global) {

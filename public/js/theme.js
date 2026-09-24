@@ -2,7 +2,8 @@
 // hasn't chosen, it uses the admin's default from /api/branding. Toggle flips
 // and persists the local choice.
 (function (global) {
-  const KEY = 'stocktrax_theme';
+  const KEY = 'allokis_theme';
+  const OLD_KEY = 'stocktrax_theme'; // pre-rename key, read once so devices keep their choice
   let adminDefault = 'dark';
 
   function apply(theme) {
@@ -12,12 +13,14 @@
   }
 
   function current() {
-    return localStorage.getItem(KEY) || adminDefault;
+    try {
+      return localStorage.getItem(KEY) || localStorage.getItem(OLD_KEY) || adminDefault;
+    } catch (e) { return adminDefault; }
   }
 
   function toggle() {
     const next = current() === 'light' ? 'dark' : 'light';
-    localStorage.setItem(KEY, next);
+    try { localStorage.setItem(KEY, next); } catch (e) { /* ignore */ }
     apply(next);
   }
 

@@ -1,22 +1,23 @@
-/* StockTrax — "stock manifest" design system.
-   Palette: ink slate structure, paper surfaces, amber = low-stock signal,
-   green = confirmed movement, clay = checkout. Numbers/SKUs in mono. */
+/* Allokis design system ("stock manifest").
+   Brand palette: Ink structure, Paper surfaces, Harbor teal = brand/primary,
+   Signal amber = low stock, green = confirmed movement, clay = checkout.
+   Numbers/SKUs in mono. */
 
 :root {
-  --ink:        #16202b;  /* deep slate — kiosk field, headers */
-  --ink-2:      #223044;  /* raised ink panels */
-  --paper:      #eceae3;  /* warm gray paper — admin field */
+  --ink:        #14202B;  /* Ink: kiosk field, headers */
+  --ink-2:      #1E2F3F;  /* raised ink panels */
+  --paper:      #F6F4EF;  /* Paper: admin field */
   --surface:    #ffffff;  /* cards */
-  --line:       #d8d5cc;  /* hairline rules */
+  --line:       #D9D5CC;  /* hairline rules */
   --text:       #1b2530;
   --muted:      #6b7683;
-  --signal:     #e0952b;  /* amber — low stock, warnings */
+  --signal:     #E8A23A;  /* Signal amber: low stock, warnings */
   --signal-bg:  #fbf0da;
-  --go:         #1f9d6b;  /* green — receive / return / confirmed */
+  --go:         #1f9d6b;  /* green: receive / return / confirmed */
   --go-bg:      #e4f4ec;
-  --take:       #c65a3a;  /* clay — checkout */
+  --take:       #c65a3a;  /* clay: checkout */
   --take-bg:    #f7e7e0;
-  --accent:     #2f6df0;  /* primary action blue */
+  --accent:     #0F5F5C;  /* primary action blue */
   --radius:     10px;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -35,9 +36,13 @@ body {
 /* mono utility for anything countable / scannable */
 .mono, .qty, .sku, .badge-code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-/* company logo inside any wordmark — scales with the wordmark's own size */
+/* company logo inside any wordmark; scales with the wordmark's own size */
 .wordmark .brand-logo { height: 1.25em; width: auto; vertical-align: middle; margin-right: .45em; border-radius: 4px; object-fit: contain; }
 .wordmark .brand-name { vertical-align: middle; }
+/* default Allokis logo (inline SVG; the wordmark follows the text color) */
+.wordmark .allokis-logo { height: 1.3em; width: auto; display: inline-block; vertical-align: middle; }
+.kiosk-head .wordmark { color: var(--k-text); }
+.admin-top .wordmark { color: #eaf0f6; }
 
 a { color: var(--accent); }
 button { font-family: inherit; cursor: pointer; }
@@ -62,12 +67,12 @@ button { font-family: inherit; cursor: pointer; }
 .btn-sm { padding: 6px 10px; font-size: 13px; }
 
 /* =========================================================
-   KIOSK  (public/kiosk.html)  — themeable: dark default + light override
+   KIOSK  (public/kiosk.html): themeable, dark default + light override
    ========================================================= */
 body.kiosk {
   /* dark theme (default) */
-  --k-bg: #16202b;
-  --k-panel: #223044;
+  --k-bg: #14202B;
+  --k-panel: #1E2F3F;
   --k-text: #eaf0f6;
   --k-muted: #8aa0b6;
   --k-line: #2c3a4c;
@@ -104,7 +109,6 @@ body.kiosk[data-theme="light"] {
   border-bottom: 1px solid var(--k-line); padding-bottom: 16px; margin-bottom: 28px;
 }
 .kiosk-head .wordmark { font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
-.kiosk-head .wordmark span { color: var(--signal); }
 .kiosk-head .head-right { display: flex; align-items: center; gap: 14px; }
 .kiosk-head .tagline { color: var(--k-muted); font-size: 12px; }
 .theme-toggle {
@@ -113,7 +117,7 @@ body.kiosk[data-theme="light"] {
 }
 .theme-toggle:hover { color: var(--k-text); }
 
-/* idle state — waiting for a badge */
+/* idle state: waiting for a badge */
 .scan-prompt { text-align: center; margin: auto 0; }
 .scan-prompt .icon {
   width: 96px; height: 96px; margin: 0 auto 24px;
@@ -125,7 +129,7 @@ body.kiosk[data-theme="light"] {
 .scan-prompt .cam-btn { margin-top: 24px; }
 .hidden-input { position: absolute; opacity: 0; pointer-events: none; height: 0; width: 0; }
 
-/* session state — a tech is logged in */
+/* session state: a tech is logged in */
 .session-head {
   display: flex; align-items: center; justify-content: space-between;
   background: var(--k-panel); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 20px;
@@ -196,7 +200,7 @@ body.kiosk[data-theme="light"] {
 
 
 /* =========================================================
-   ADMIN  (public/admin.html)  — paper, dense, workmanlike
+   ADMIN  (public/admin.html): paper, dense, workmanlike
    ========================================================= */
 .admin-top {
   background: var(--ink); color: #eaf0f6;
@@ -204,7 +208,6 @@ body.kiosk[data-theme="light"] {
   padding: 14px 24px;
 }
 .admin-top .wordmark { font-weight: 800; letter-spacing: -.02em; font-size: 18px; }
-.admin-top .wordmark span { color: var(--signal); }
 .admin-top nav { display: flex; gap: 4px; flex-wrap: wrap; }
 .admin-top nav button {
   background: transparent; border: none; color: #b9c6d4; padding: 8px 14px;
@@ -248,7 +251,7 @@ body.kiosk[data-theme="light"] {
   font-size: 15px; font-family: inherit; background: #fff;
 }
 .field input:focus, .field select:focus, .field textarea:focus {
-  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(47,109,240,.15);
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(15,95,92,.18);
 }
 .field.mono input { font-family: var(--mono); }
 .row { display: flex; gap: 14px; flex-wrap: wrap; }

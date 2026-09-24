@@ -1,47 +1,58 @@
-# Contributing to StockTrax
+# Contributing to Allokis
 
-Thanks for your interest in improving StockTrax.
+Thanks for your interest in improving Allokis.
 
-## License of contributions
+## How the project is licensed
 
-StockTrax is licensed under the **GNU AGPL v3.0**. By contributing, you agree
-that your contribution is provided under that same license.
+This repository is the **Allokis Community Edition**, licensed under the
+**GNU AGPL v3.0** (see [LICENSE](LICENSE)). Allokis is also offered as a paid,
+hosted subscription service by its copyright holder, Ultra Pest Control.
 
-## Developer Certificate of Origin (DCO)
+## Contributor License Agreement (CLA)
 
-To keep the project's licensing clean — and to preserve the maintainer's ability
-to offer StockTrax under alternative license terms in the future — every commit
-must be signed off under the [Developer Certificate of Origin](https://developercertificate.org/).
+Because the same core code is used in both the open-source edition and the paid
+service, every outside contribution must be covered by the
+[Allokis Contributor License Agreement](CLA.md) before it can be merged.
 
-The DCO is a simple statement that you wrote the contribution or otherwise have
-the right to submit it under the project's license. You sign off by adding a line
-to your commit message:
+In short, the CLA says:
+
+- you still own the copyright in what you contribute;
+- you give Ultra Pest Control permission to use, change, and distribute your
+  contribution, including in the open-source edition and in paid or hosted
+  versions under other license terms;
+- you wrote the contribution yourself (or otherwise have the right to submit it).
+
+**How to agree:** when you open a pull request, add this line to its
+description:
 
 ```
-Signed-off-by: Your Name <your.email@example.com>
+I have read and agree to the Allokis CLA (CLA.md).
 ```
 
-Git can add this automatically with the `-s` flag:
-
-```bash
-git commit -s -m "Add CSV export to the activity log"
-```
+Pull requests without it can't be merged. If you're contributing on behalf of
+your employer, make sure they're OK with you agreeing to the CLA.
 
 ## How to contribute
 
 1. Fork the repository and create a branch for your change.
-2. Make your change. Keep the style simple and dependency-light — that's the
+2. Make your change. Keep the style simple and dependency-light; that's the
    whole point of the project.
-3. Sign off your commits (`git commit -s`).
-4. Open a pull request describing what you changed and why.
+3. Open a pull request describing what you changed and why, including the CLA
+   line above.
 
 ## Good first areas
 
 - Product photo upload for items without a database image
-- Per-item history view and CSV export
-- Locations (warehouse shelf / truck) per stock item
+- Per-item history view
+- A supplier field on items, so the reorder list can group by supplier
 - Additional barcode-lookup providers in `src/barcode.js`
+
+## Trademark
+
+"Allokis" and the Allokis logo are trademarks of Ultra Pest Control. The code
+license does not grant rights to the name or logo. See the Trademark section of
+the [README](README.md#trademark).
 
 ## Questions
 
-Open an issue — happy to help.
+Open an issue. Happy to help.

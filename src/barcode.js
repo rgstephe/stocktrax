@@ -1,5 +1,5 @@
 /*
- * StockTrax — self-hosted barcode inventory.
+ * Allokis: self-hosted barcode inventory. Everything accounted for.
  * Copyright (C) 2026 Ultra Pest Control.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -22,7 +22,7 @@
  */
 
 async function upcitemdb(barcode /*, apiKey */) {
-  // Free trial endpoint — no key required, but rate-limited.
+  // Free trial endpoint: no key required, but rate-limited.
   // For production volume, switch to the keyed endpoint and read the key from settings.
   const url = `https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(
     barcode
@@ -41,7 +41,7 @@ async function upcitemdb(barcode /*, apiKey */) {
 }
 
 async function openfoodfacts(barcode /*, apiKey */) {
-  // Food-skewed, but free and keyless — handy fallback / example provider.
+  // Food-skewed, but free and keyless. A handy fallback / example provider.
   const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(
     barcode
   )}.json`;

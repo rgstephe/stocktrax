@@ -1,5 +1,5 @@
 /*
- * StockTrax — self-hosted barcode inventory.
+ * Allokis: self-hosted barcode inventory. Everything accounted for.
  * Copyright (C) 2026 Ultra Pest Control.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -11,7 +11,7 @@
  */
 'use strict';
 
-// Password hashing with Node's built-in scrypt — no external dependency.
+// Password hashing with Node's built-in scrypt. No external dependency.
 // Stored format: "scrypt$<salt-hex>$<hash-hex>".
 const crypto = require('crypto');
 

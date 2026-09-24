@@ -3,13 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>StockTrax — Stock Room Kiosk</title>
-  <link rel="stylesheet" href="/css/style.css?v=0.6.0" />
+  <title>Allokis · Stock Room Kiosk</title>
+  <link rel="icon" href="/img/favicon.svg?v=0.7.0" type="image/svg+xml" />
+  <link rel="stylesheet" href="/css/style.css?v=0.7.0" />
 </head>
 <body class="kiosk">
   <div class="kiosk-wrap">
     <header class="kiosk-head">
-      <div class="wordmark">Stock<span>Trax</span></div>
+      <div class="wordmark"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -828 4102 896" class="allokis-logo" role="img" aria-label="Allokis"><rect x="0" y="-828" width="896" height="896" rx="224" fill="#0F5F5C"/><rect x="196" y="-604" width="504" height="98" rx="49" fill="#F6F4EF"/><rect x="196" y="-429" width="364" height="98" rx="49" fill="#7FD1C0"/><rect x="196" y="-254" width="210" height="98" rx="49" fill="#E8A23A"/><path transform="translate(1164 0)" d="M297 -560Q362 -560 410 -534Q459 -509 488 -471V-551H603V0H488V-82Q459 -43 409 -17Q359 9 295 9Q224 9 165 -28Q106 -64 72 -130Q37 -195 37 -278Q37 -361 72 -425Q106 -489 166 -524Q225 -560 297 -560ZM321 -461Q277 -461 239 -440Q201 -418 178 -376Q154 -335 154 -278Q154 -221 178 -178Q201 -135 240 -112Q278 -90 321 -90Q365 -90 403 -112Q441 -134 464 -176Q488 -219 488 -276Q488 -333 464 -375Q441 -417 403 -439Q365 -461 321 -461Z M832 -740V0H718V-740Z M1061 -740V0H947V-740Z M1139 -276Q1139 -360 1176 -425Q1213 -490 1277 -525Q1341 -560 1420 -560Q1499 -560 1563 -525Q1627 -490 1664 -425Q1701 -360 1701 -276Q1701 -192 1663 -127Q1625 -62 1560 -26Q1494 9 1415 9Q1337 9 1274 -26Q1211 -62 1175 -126Q1139 -191 1139 -276ZM1584 -276Q1584 -336 1561 -378Q1538 -419 1500 -440Q1462 -461 1418 -461Q1374 -461 1336 -440Q1299 -419 1277 -378Q1255 -336 1255 -276Q1255 -187 1300 -138Q1346 -90 1415 -90Q1459 -90 1498 -111Q1536 -132 1560 -174Q1584 -216 1584 -276Z M1997 -275 2251 0H2097L1893 -237V0H1779V-740H1893V-310L2093 -551H2251Z M2283 -697Q2283 -728 2304 -749Q2325 -770 2356 -770Q2386 -770 2407 -749Q2428 -728 2428 -697Q2428 -666 2407 -645Q2386 -624 2356 -624Q2325 -624 2304 -645Q2283 -666 2283 -697ZM2412 -551V0H2298V-551Z M2497 -169H2615Q2618 -134 2648 -110Q2679 -87 2725 -87Q2773 -87 2800 -106Q2826 -124 2826 -153Q2826 -184 2796 -199Q2767 -214 2703 -232Q2641 -249 2602 -265Q2563 -281 2534 -314Q2506 -347 2506 -401Q2506 -445 2532 -482Q2558 -518 2606 -539Q2655 -560 2718 -560Q2812 -560 2870 -512Q2927 -465 2931 -383H2817Q2814 -420 2787 -442Q2760 -464 2714 -464Q2669 -464 2645 -447Q2621 -430 2621 -402Q2621 -380 2637 -365Q2653 -350 2676 -342Q2699 -333 2744 -320Q2804 -304 2842 -288Q2881 -271 2909 -239Q2937 -207 2938 -154Q2938 -107 2912 -70Q2886 -33 2838 -12Q2791 9 2727 9Q2662 9 2610 -14Q2559 -38 2529 -78Q2499 -119 2497 -169Z" fill="currentColor"/></svg></div>
       <div class="head-right">
         <div style="text-align:right;">
           <div class="tagline">Stock Room Kiosk</div>
@@ -27,7 +28,7 @@
         </svg>
       </div>
       <h1>Scan your badge to begin</h1>
-      <p>Hold your StockTrax badge up to the scanner.</p>
+      <p>Hold your badge up to the scanner.</p>
       <button class="btn cam-btn" id="camLoginBtn">📷 Scan badge with camera</button>
     </section>
 
@@ -36,7 +37,7 @@
       <div class="session-head">
         <div class="who">
           <small>Signed in</small>
-          <span id="techName">—</span>
+          <span id="techName">-</span>
         </div>
         <div class="mode-toggle" id="modeToggle">
           <button class="active take" data-mode="checkout">Take</button>
@@ -51,7 +52,7 @@
       <ul class="session-list" id="sessionList"></ul>
 
       <div class="session-foot">
-        <button class="btn btn-go" id="doneBtn">Done — sign out</button>
+        <button class="btn btn-go" id="doneBtn">Done, sign out</button>
       </div>
     </section>
   </div>
@@ -60,10 +61,10 @@
   <input id="scanBuffer" class="hidden-input" autocomplete="off" />
   <div class="toast" id="toast"></div>
 
-  <script src="/js/api.js?v=0.6.0"></script>
-  <script src="/js/branding.js?v=0.6.0"></script>
-  <script src="/js/theme.js?v=0.6.0"></script>
-  <script src="/js/scanner.js?v=0.6.0"></script>
-  <script src="/js/kiosk.js?v=0.6.0"></script>
+  <script src="/js/api.js?v=0.7.0"></script>
+  <script src="/js/branding.js?v=0.7.0"></script>
+  <script src="/js/theme.js?v=0.7.0"></script>
+  <script src="/js/scanner.js?v=0.7.0"></script>
+  <script src="/js/kiosk.js?v=0.7.0"></script>
 </body>
 </html>

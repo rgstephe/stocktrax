@@ -1,5 +1,5 @@
 /*
- * StockTrax — self-hosted barcode inventory.
+ * Allokis: self-hosted barcode inventory. Everything accounted for.
  * Copyright (C) 2026 Ultra Pest Control.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -19,7 +19,27 @@ const { hashPassword } = require('./auth');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const DB_PATH = path.join(DATA_DIR, 'stocktrax.db');
+// The database file is allokis.db. Installs from before the rename have
+// stocktrax.db; if that's the only one present, rename it (and its WAL/SHM
+// side files) once so nothing is lost. If the rename fails for any reason,
+// keep using the old file in place.
+function resolveDbPath() {
+  const next = path.join(DATA_DIR, 'allokis.db');
+  const old = path.join(DATA_DIR, 'stocktrax.db');
+  if (fs.existsSync(next) || !fs.existsSync(old)) return next;
+  try {
+    fs.renameSync(old, next);
+    for (const ext of ['-wal', '-shm']) {
+      if (fs.existsSync(old + ext)) fs.renameSync(old + ext, next + ext);
+    }
+    console.log('[migrate] Renamed stocktrax.db to allokis.db.');
+    return next;
+  } catch (e) {
+    console.error('[migrate] Could not rename stocktrax.db, using it as-is:', e.message);
+    return old;
+  }
+}
+const DB_PATH = resolveDbPath();
 const db = new Database(DB_PATH);
 
 // Apply schema
@@ -64,7 +84,9 @@ if (legacyAdmins.length) {
 const seedSetting = db.prepare(
   'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)'
 );
-seedSetting.run('company_name', process.env.COMPANY_NAME || 'StockTrax');
+seedSetting.run('company_name', process.env.COMPANY_NAME || 'Allokis');
+// Installs that never set a company name still carry the old default.
+db.prepare("UPDATE settings SET value = 'Allokis' WHERE key = 'company_name' AND value = 'StockTrax'").run();
 seedSetting.run('barcode_provider', process.env.BARCODE_PROVIDER || 'upcitemdb');
 seedSetting.run('barcode_api_key', process.env.BARCODE_API_KEY || '');
 
@@ -105,7 +127,7 @@ if (!mainOffice) {
     mainOffice = anyOffice;
   } else {
     const co = (db.prepare("SELECT value FROM settings WHERE key = 'company_name'").get() || {}).value;
-    const name = co && co.trim() && co.trim() !== 'StockTrax' ? co.trim() : 'Main Office';
+    const name = co && co.trim() && co.trim() !== 'StockTrax' && co.trim() !== 'Allokis' ? co.trim() : 'Main Office';
     const info = db.prepare('INSERT INTO offices (name, is_main) VALUES (?, 1)').run(name);
     mainOffice = { id: Number(info.lastInsertRowid) };
   }

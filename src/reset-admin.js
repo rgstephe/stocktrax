@@ -1,10 +1,10 @@
 /*
- * StockTrax — admin password reset (command-line fallback).
+ * Allokis: admin password reset (command-line fallback).
  * Copyright (C) 2026 Ultra Pest Control.  Licensed under the GNU AGPL v3.
  *
  * Use this when you're locked out of the admin console entirely and don't have
  * a recovery code. Because it needs shell access to the server, only someone
- * who controls the machine can run it — which is the right bar for a last-resort
+ * who controls the machine can run it, which is the right bar for a last-resort
  * reset.
  *
  * Usage:

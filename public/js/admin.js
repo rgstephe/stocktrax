@@ -14,6 +14,8 @@ let officeView = 'all';
 let labelPrefs = { size: 'sheet', showName: false };
 let companyName = '';
 
+// The app's built-in default name (older installs may still hold "StockTrax").
+function isDefaultName(n) { return !n || n === 'Allokis' || n === 'StockTrax'; }
 function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
 
@@ -26,7 +28,7 @@ async function loadOffices() {
   const sw = document.getElementById('officeSwitch');
   sw.hidden = !multi;
   if (multi) {
-    const saved = lsGet('stocktrax.office') || 'all';
+    const saved = lsGet('allokis.office') || lsGet('stocktrax.office') || 'all';
     officeView = saved === 'all' || activeOffices().some((o) => String(o.id) === saved) ? saved : 'all';
     document.getElementById('officeSel').innerHTML =
       '<option value="all">All offices</option>' +
@@ -60,7 +62,7 @@ function officeLabel() {
 
 document.getElementById('officeSel').addEventListener('change', (e) => {
   officeView = e.target.value;
-  lsSet('stocktrax.office', officeView);
+  lsSet('allokis.office', officeView);
   const active = document.querySelector('#nav button.active');
   loadTab(active ? active.dataset.tab : 'dashboard');
 });
@@ -69,7 +71,7 @@ async function loadLabelPrefs() {
   try {
     const s = await api.get('/api/settings');
     labelPrefs = { size: s.label_size || 'sheet', showName: s.label_show_name === '1' };
-    companyName = s.company_name && s.company_name !== 'StockTrax' ? s.company_name : '';
+    companyName = isDefaultName(s.company_name) ? '' : s.company_name;
   } catch (e) { /* keep defaults */ }
 }
 
@@ -102,7 +104,7 @@ function locationsFor(officeId) {
   return locations.filter((l) => String(l.office_id) === String(officeId));
 }
 function optionList(rows, selected) {
-  return ['<option value="">—</option>']
+  return ['<option value="">-</option>']
     .concat(rows.map((r) =>
       `<option value="${r.id}"${r.id === selected ? ' selected' : ''}>${escapeHtml(r.name)}</option>`))
     .join('');
@@ -114,7 +116,7 @@ async function loadDashboard() {
   const d = await api.get('/api/dashboard' + officeQS());
   lastLow = d.lowStock;
   document.querySelector('#dashboard .page-sub').textContent =
-    multi ? 'Current stock at a glance — ' + officeLabel() + '.' : 'Current stock at a glance.';
+    multi ? 'Current stock at a glance: ' + officeLabel() + '.' : 'Current stock at a glance.';
   document.getElementById('stats').innerHTML =
     stat(d.totals.items, 'Distinct items') +
     stat(d.totals.units, 'Total units on hand') +
@@ -184,7 +186,7 @@ async function doLookup(code) {
   document.getElementById('rcvName').dataset.barcode = code;
 
   if (res.found === 'local') {
-    // Known item — just adding quantity.
+    // Known item: just adding quantity.
     pendingItem = res.item;
     preview.innerHTML = previewCard(res.item.image_url, res.item.name, res.item.brand,
       `Already in catalog · ${res.item.quantity} on hand` + (multi ? ' at ' + ((officeById(rcvOffice()) || {}).name || '') : ''));
@@ -201,7 +203,7 @@ async function doLookup(code) {
     fill('rcvImage', res.product.image_url || '');
     fill('rcvThreshold', 0);
   } else {
-    const why = res.found === 'error' ? 'Lookup failed — enter details manually.' : 'No match found — enter details manually.';
+    const why = res.found === 'error' ? 'Lookup failed. Enter details manually.' : 'No match found. Enter details manually.';
     preview.innerHTML = `<div class="preview"><div><div class="name">New product</div><div class="src">${why}</div></div></div>`;
     fill('rcvName', ''); fill('rcvBrand', ''); fill('rcvImage', '');
     fill('rcvThreshold', 0);
@@ -284,7 +286,7 @@ document.getElementById('rcvGenBarcode').addEventListener('click', async () => {
     const { barcode } = await api.get('/api/items/next-barcode');
     document.getElementById('rcvBarcode').value = barcode;
     await doLookup(barcode); // new code -> shows the manual entry form
-    toast('Generated ' + barcode + ' — fill in the details');
+    toast('Generated ' + barcode + '. Fill in the details.');
   } catch (e) { toast(e.message, true); }
 });
 
@@ -307,7 +309,7 @@ async function loadItems() {
   if (multi) qs.push('office_id=' + encodeURIComponent(officeView));
   const items = await api.get('/api/items' + (qs.length ? '?' + qs.join('&') : ''));
   document.querySelector('#items .page-sub').textContent = multi
-    ? 'Everything in the catalog and how much is on hand — ' + officeLabel() + '.'
+    ? 'Everything in the catalog and how much is on hand: ' + officeLabel() + '.'
     : 'Everything in the catalog and how much is on hand.';
   itemsById = {};
   items.forEach((i) => { itemsById[i.id] = i; });
@@ -317,10 +319,10 @@ async function loadItems() {
           <td>${i.image_url ? `<img class="thumb-sm" src="${escapeAttr(i.image_url)}">` : '<span class="thumb-sm"></span>'}</td>
           <td>${escapeHtml(i.name)}${i.low ? ' <span class="pill low">LOW</span>' : ''}${i.active ? '' : ' <span class="pill adjustment">inactive</span>'}<br><small class="src" style="color:var(--muted)">${escapeHtml(i.brand || '')}</small></td>
           <td>${escapeHtml(i.category || '')}</td>
-          <td>${viewingAll() ? '<span style="color:var(--muted)">—</span>' : escapeHtml(i.location || '')}</td>
+          <td>${viewingAll() ? '<span style="color:var(--muted)">-</span>' : escapeHtml(i.location || '')}</td>
           <td class="num">${i.quantity} ${escapeHtml(i.unit || '')}${viewingAll() ? stockBreak(i.stock) : ''}</td>
-          <td class="num">${viewingAll() ? '—' : (i.low_stock_threshold || '—')}</td>
-          <td class="sku">${escapeHtml(i.barcode || '—')}</td>
+          <td class="num">${viewingAll() ? '-' : (i.low_stock_threshold || '-')}</td>
+          <td class="sku">${escapeHtml(i.barcode || '-')}</td>
           <td><div class="item-actions">
             <button class="btn btn-sm" onclick="editItem(${i.id})">Edit</button>
             <button class="btn btn-sm" onclick="adjustItem(${i.id})">Adjust</button>
@@ -366,7 +368,7 @@ async function editItem(id) {
       <div class="field mono"><label>Low-stock alert at</label><input id="edThreshold" type="number" min="0" value="${cur.low_stock_threshold || 0}"></div></div>
     <div class="field"><label>Image URL</label><input id="edImage" value="${escapeAttr(i.image_url || '')}"></div>
     <div class="field"><label>Notes</label><input id="edNotes" value="${escapeAttr(i.notes || '')}"></div>
-    <p style="color:var(--muted);font-size:12px;margin:0;">To change the on-hand quantity, use <b>Adjust</b> instead — it keeps an audit record.</p>
+    <p style="color:var(--muted);font-size:12px;margin:0;">To change the on-hand quantity, use <b>Adjust</b> instead. It keeps an audit record.</p>
     <div class="modal-actions"><button class="btn btn-primary" onclick="saveEdit(${id})">Save changes</button><button class="btn btn-ghost" onclick="closeModal()">Cancel</button></div>
   `);
   if (multi) {
@@ -403,7 +405,7 @@ async function adjustItem(id) {
   if (multi) { try { stock = await itemStock(id); } catch (e) { return toast(e.message, true); } }
   const qty = stock ? (stock[o] ? stock[o].quantity : 0) : i.quantity;
   openModal(`
-    <h3>Adjust stock — ${escapeHtml(i.name)}</h3>
+    <h3>Adjust stock: ${escapeHtml(i.name)}</h3>
     ${multi ? `<div class="field" style="max-width:320px;"><label>Office</label><select id="adjOffice">${officeOptions(o)}</select></div>` : ''}
     <p style="color:var(--muted);font-size:13px;margin-top:-8px;">Current on hand: <b id="adjCur">${qty}</b> ${escapeHtml(i.unit || '')}. Enter the corrected count and (optionally) why.</p>
     <div class="field mono" style="max-width:220px;"><label>New on-hand count</label><input id="adjCount" type="number" min="0" value="${qty}"></div>
@@ -452,7 +454,7 @@ async function transferItem(id) {
   const to = (act.find((o) => o.id !== from) || {}).id;
   const qtyAt = (o) => (stock[o] ? stock[o].quantity : 0);
   openModal(`
-    <h3>Transfer — ${escapeHtml(i.name)}</h3>
+    <h3>Transfer: ${escapeHtml(i.name)}</h3>
     <div class="row">
       <div class="field"><label>From</label><select id="trFrom">${officeOptions(from)}</select><small id="trFromQty" style="color:var(--muted)"></small></div>
       <div class="field"><label>To</label><select id="trTo">${officeOptions(to)}</select><small id="trToQty" style="color:var(--muted)"></small></div>
@@ -504,7 +506,7 @@ document.getElementById('modalBackdrop').addEventListener('click', (e) => {
 
 // ---- printable barcode labels (items and badges) -------------------------
 // All printing goes through Print (public/js/print.js), which prints from an
-// isolated hidden frame — so only the label/sheet prints, never this page.
+// isolated hidden frame, so only the label/sheet prints, never this page.
 
 // Show an on-screen preview card with a Print button.
 //   kind 'item'  -> follows the Label printing settings (size, name on/off)
@@ -549,7 +551,7 @@ function printHeader(title, sub) {
   const contact = o ? [o.phone, o.email].filter(Boolean).join(' · ') : '';
   const printed = new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   return `<div class="ph">
-    <div><div class="co">${escapeHtml(companyName || (o && o.name) || 'StockTrax')}</div>
+    <div><div class="co">${escapeHtml(companyName || (o && o.name) || 'Allokis')}</div>
       ${multi ? `<div class="of">${escapeHtml(viewingAll() ? 'All offices' : o.name)}</div>` : ''}
       ${addr ? `<div class="ad">${escapeHtml(addr)}</div>` : ''}
       ${contact ? `<div class="ad">${escapeHtml(contact)}</div>` : ''}</div>
@@ -613,7 +615,7 @@ async function loadTechs() {
       <td>${escapeHtml(u.name)}</td>
       <td>${u.role}</td>
       ${multi ? `<td><select class="tech-office" data-id="${u.id}" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px;">${officeOptions(u.office_id)}</select></td>` : ''}
-      <td class="badge-code">${escapeHtml(u.badge_barcode || '—')}</td>
+      <td class="badge-code">${escapeHtml(u.badge_barcode || '-')}</td>
       <td><button class="btn btn-sm" data-badge="${u.id}">Print badge</button></td>
     </tr>`)
   ) : '<div class="empty">No techs at this office yet.</div>';
@@ -709,7 +711,7 @@ async function loadLog() {
   const rows = await api.get('/api/transactions?' + logQuery());
   logRows = rows;
   document.getElementById('logCount').textContent = rows.length
-    ? `Showing ${rows.length} movement${rows.length > 1 ? 's' : ''}${logFiltered ? ' matching your filters' : ' (most recent)'}${multi ? ' — ' + officeLabel() : ''}.`
+    ? `Showing ${rows.length} movement${rows.length > 1 ? 's' : ''}${logFiltered ? ' matching your filters' : ' (most recent)'}${multi ? ' at ' + officeLabel() : ''}.`
     : '';
   document.getElementById('logTable').innerHTML = rows.length
     ? table(txHeaders(true), rows.map((t) => txRow(t, true)))
@@ -731,14 +733,14 @@ document.getElementById('logPrint').addEventListener('click', () => {
   if (typeSel.value) bits.push(typeSel.options[typeSel.selectedIndex].text);
   if (techSel.value) bits.push(techSel.options[techSel.selectedIndex].text);
   const showOffice = viewingAll();
-  const body = printHeader('Activity log', (bits.join(' · ') || 'Most recent activity') + ' — ' + logRows.length + ' movements') +
+  const body = printHeader('Activity log', (bits.join(' · ') || 'Most recent activity') + ' · ' + logRows.length + ' movements') +
     `<table><thead><tr><th>When</th>${showOffice ? '<th>Office</th>' : ''}<th>Item</th><th>Barcode</th><th>Tech</th><th>Movement</th><th class="num">Qty</th><th>Note</th></tr></thead><tbody>` +
     logRows.map((t) => `<tr>
       <td>${escapeHtml(fmtDateLong(t.created_at))}</td>
       ${showOffice ? `<td>${escapeHtml(t.office_name || '')}</td>` : ''}
       <td>${escapeHtml(t.item_name || '(deleted)')}</td>
       <td class="mono">${escapeHtml(t.item_barcode || '')}</td>
-      <td>${escapeHtml(t.user_name || '—')}</td>
+      <td>${escapeHtml(t.user_name || '-')}</td>
       <td>${escapeHtml(TYPE_LABEL[t.type] || t.type)}</td>
       <td class="num">${t.type === 'adjustment' ? '=' : DIR_SIGN[t.type] || ''}${t.quantity}</td>
       <td><small>${escapeHtml(t.note || '')}</small></td>
@@ -757,7 +759,7 @@ function txRow(t, withNote) {
     <td class="sku">${fmtDate(t.created_at)}</td>
     ${viewingAll() ? `<td>${escapeHtml(t.office_name || '')}</td>` : ''}
     <td>${escapeHtml(t.item_name || '(deleted)')}</td>
-    <td>${escapeHtml(t.user_name || '—')}</td>
+    <td>${escapeHtml(t.user_name || '-')}</td>
     <td><span class="pill ${t.type}">${escapeHtml(TYPE_LABEL[t.type] || t.type)}</span> <span class="qty">${qty}</span></td>
     ${withNote ? `<td><small style="color:var(--muted)">${escapeHtml(t.note || '')}</small></td>` : ''}
   </tr>`;
@@ -769,7 +771,7 @@ let pendingLogo; // undefined = unchanged; '' = cleared; data-url = new logo
 async function loadSettings() {
   await ensureTaxonomy();
   const s = await api.get('/api/settings');
-  fill('setCompany', s.company_name && s.company_name !== 'StockTrax' ? s.company_name : '');
+  fill('setCompany', isDefaultName(s.company_name) ? '' : s.company_name);
   fill('setTagline', s.brand_tagline || '');
   pendingLogo = undefined;
   renderLogoPreview(s.logo_data_url || '');
@@ -792,7 +794,7 @@ async function loadSettings() {
 async function loadAbout() {
   try {
     const v = await api.get('/api/version');
-    document.getElementById('aboutName').textContent = v.name || 'StockTrax';
+    document.getElementById('aboutName').textContent = v.name || 'Allokis';
     document.getElementById('aboutVersion').textContent = 'v' + v.version;
   } catch (e) { /* ignore */ }
 }
@@ -807,7 +809,7 @@ function renderLogoPreview(dataUrl) {
 document.getElementById('logoFile').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  if (file.size > 2 * 1024 * 1024) return toast('That image is over 2 MB — please use a smaller one', true);
+  if (file.size > 2 * 1024 * 1024) return toast('That image is over 2 MB. Please use a smaller one.', true);
   const reader = new FileReader();
   reader.onload = () => { pendingLogo = reader.result; renderLogoPreview(pendingLogo); };
   reader.readAsDataURL(file);
@@ -826,7 +828,7 @@ document.getElementById('setBrandSave').addEventListener('click', async () => {
   };
   if (pendingLogo !== undefined) body.logo_data_url = pendingLogo;
   await api.put('/api/settings', body);
-  toast('Branding saved — reloading to apply');
+  toast('Branding saved. Reloading to apply.');
   setTimeout(() => location.reload(), 800); // re-run branding.js across the app
 });
 
@@ -936,7 +938,7 @@ document.getElementById('multiOfficeToggle').addEventListener('change', async (e
     await loadOffices();
     await ensureTaxonomy();
     loadSettings();
-    toast(on ? 'Multi-office is on — add your branch offices below' : 'Multi-office is off');
+    toast(on ? 'Multi-office is on. Add your branch offices below.' : 'Multi-office is off');
   } catch (err) { e.target.checked = !on; toast(err.message, true); }
 });
 
@@ -983,7 +985,7 @@ function kioskLink(id) {
   const o = officeById(id);
   const link = location.origin + '/kiosk.html?office=' + id;
   openModal(`
-    <h3>Kiosk link — ${escapeHtml(o.name)}</h3>
+    <h3>Kiosk link: ${escapeHtml(o.name)}</h3>
     <p style="color:var(--muted);font-size:13px;margin-top:-6px;">Open this link on the stock-room computer at ${escapeHtml(o.name)} (bookmark it or set it as the browser's home page). Every scan on that kiosk counts against ${escapeHtml(o.name)}'s stock.</p>
     <div class="field mono"><input id="kioskLinkInput" value="${escapeAttr(link)}" readonly></div>
     <p style="color:var(--muted);font-size:12px;">Without an office in the link, the kiosk uses each tech's home office.</p>
@@ -1149,7 +1151,7 @@ async function refreshAccountStatus() {
     const a = await api.get('/api/account');
     document.getElementById('recoveryStatus').innerHTML = a.recovery_set
       ? '<b>A recovery code is already set.</b> Generating a new one replaces it.'
-      : '<b style="color:var(--signal);">No recovery code yet — set one up now.</b>';
+      : '<b style="color:var(--signal);">No recovery code yet. Set one up now.</b>';
   } catch (e) { /* ignore */ }
 }
 
